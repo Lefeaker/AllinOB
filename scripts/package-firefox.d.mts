@@ -6,6 +6,15 @@ export type FirefoxSigningOptions = {
   apiSecret: string;
   channel: string;
   extensionId?: string;
+  timeout?: number;
+  approvalTimeout?: number;
+};
+
+export type FirefoxSigningResult = {
+  artifactBaseName: string;
+  channel: 'listed' | 'unlisted';
+  signedPath: string | null;
+  webExtResult?: unknown;
 };
 
 export type WebExtSigningApi = {
@@ -13,7 +22,7 @@ export type WebExtSigningApi = {
     sign: (
       options: Record<string, unknown>,
       runnerOptions: { shouldExitProgram: boolean }
-    ) => Promise<void>;
+    ) => Promise<unknown>;
   };
 };
 
@@ -65,7 +74,7 @@ export type FirefoxSigningDependencies = {
   runSigningImpl?: (
     options: FirefoxSigningOptions,
     dependencies?: FirefoxSigningDependencies
-  ) => Promise<string | null>;
+  ) => Promise<FirefoxSigningResult>;
   statImpl?: (path: string) => Promise<{ mtimeMs: number; size: number }>;
   webExt?: WebExtSigningApi;
 };
@@ -113,15 +122,19 @@ export function lintFirefoxExtension(
   dependencies?: FirefoxLintDependencies
 ): Promise<FirefoxLintResult>;
 
+export function normalizeFirefoxSigningChannel(channel: string): 'listed' | 'unlisted';
+
+export function requiresDownloadedSignedArtifact(channel: string): boolean;
+
 export function runSigning(
   options: FirefoxSigningOptions,
   dependencies?: FirefoxSigningDependencies
-): Promise<string | null>;
+): Promise<FirefoxSigningResult>;
 
 export function signAndAuditFirefoxPackage(
   options: FirefoxSigningOptions,
   dependencies?: FirefoxSigningDependencies
-): Promise<string>;
+): Promise<FirefoxSigningResult>;
 
 export function prepareFirefoxReleasePackage(
   options: { distDir: string },

@@ -102,16 +102,23 @@ npm run package:firefox
 ```bash
 # 使用 AMO API 进行签名（需要先配置凭据）
 WEB_EXT_API_KEY=xxx WEB_EXT_API_SECRET=yyy npm run package:firefox:sign
+
+# 使用本机 GA public config 构建 Firefox production 包，再提交 AMO
+WEB_EXT_API_KEY=xxx WEB_EXT_API_SECRET=yyy npm run package:firefox:prod:ga -- --sign --channel listed
 ```
 
 - 需要在 [Mozilla Add-on Developer Hub](https://addons.mozilla.org/) 生成 API Key 与 Secret。
 - 签名产物默认输出到 `build/firefox-artifacts/`，同时复制一份形如 `<扩展名>-v<版本号>-signed.xpi` 到仓库根目录。
 - 支持可选参数：
   - `--channel listed|unlisted`：默认 `listed`，用于选择发布渠道。
+    - `listed`：提交到 AMO 公开列表审核；脚本默认传递 `approvalTimeout=0`，避免 CI 长时间等待审核完成。审核通过后由 AMO 侧提供签名产物。
+    - `unlisted`：用于自分发签名；脚本要求 Mozilla 返回 signed XPI，并对最终 signed XPI 重新执行 release archive audit。
   - `--artifacts-dir <path>`：自定义签名产物目录。
+  - `--timeout <ms>`：覆盖 web-ext 等待验证的毫秒值。
+  - `--approval-timeout <ms>`：覆盖 web-ext 等待审核的毫秒值；`listed` 自动发布默认使用 `0`。
   - `--api-key` / `--api-secret`：覆盖环境变量传入凭据。
 - 通过 `npm run package:firefox:sign -- --channel unlisted` 可传递附加参数。
-- CI 中可直接运行 `node scripts/package-firefox.mjs --sign`，结合密钥管理工具注入凭据。
+- GitHub 自动发布入口为 `.github/workflows/release-firefox-amo.yml`。该 workflow 支持 tag `v*` 触发与手动触发，默认 `listed`，手动触发可选择 `unlisted`；它会强制校验 canonical `ZENDIO_GA_MEASUREMENT_ID`、`ZENDIO_GA_TRANSPORT_MODE=proxy`、`ZENDIO_GA_PROXY_ENDPOINT`、`WEB_EXT_API_KEY`、`WEB_EXT_API_SECRET`，运行 Firefox GA production build，提交 AMO，并对生成的 XPI 执行 GA release-surface archive audit。
 
 ## 🎨 样式适配
 

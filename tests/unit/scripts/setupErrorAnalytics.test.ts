@@ -65,6 +65,157 @@ describe('setup-error-analytics script', () => {
     expect(output).toContain('typed analytics runtime message facade is present');
   });
 
+  it('fails required production validation when public GA env vars are missing', () => {
+    const result = spawnSync(process.execPath, [setupErrorAnalyticsScript, '--require-env'], {
+      cwd: PROJECT_ROOT,
+      encoding: 'utf8',
+      env: {
+        ...process.env,
+        NODE_OPTIONS: '',
+        ZENDIO_GA_MEASUREMENT_ID: '',
+        ZENDIO_GA_TRANSPORT_MODE: '',
+        ZENDIO_GA_PROXY_ENDPOINT: '',
+        AIIINOB_GA_MEASUREMENT_ID: '',
+        AIIINOB_GA_TRANSPORT_MODE: '',
+        AIIINOB_GA_PROXY_ENDPOINT: ''
+      }
+    });
+
+    const output = stripAnsi(`${result.stdout}${result.stderr}`);
+
+    expect(result.status).not.toBe(0);
+    expect(output).toContain('ZENDIO_GA_MEASUREMENT_ID/AIIINOB_GA_MEASUREMENT_ID is required');
+    expect(output).toContain('ZENDIO_GA_TRANSPORT_MODE/AIIINOB_GA_TRANSPORT_MODE is required');
+    expect(output).toContain('ZENDIO_GA_PROXY_ENDPOINT/AIIINOB_GA_PROXY_ENDPOINT is required');
+  });
+
+  it('passes required production validation when public GA env vars are complete', () => {
+    const result = spawnSync(process.execPath, [setupErrorAnalyticsScript, '--require-env'], {
+      cwd: PROJECT_ROOT,
+      encoding: 'utf8',
+      env: {
+        ...process.env,
+        NODE_OPTIONS: '',
+        ZENDIO_GA_MEASUREMENT_ID: 'G-ABCD1234',
+        ZENDIO_GA_TRANSPORT_MODE: 'proxy',
+        ZENDIO_GA_PROXY_ENDPOINT: 'https://analytics.example.test/ga4',
+        AIIINOB_GA_MEASUREMENT_ID: '',
+        AIIINOB_GA_TRANSPORT_MODE: '',
+        AIIINOB_GA_PROXY_ENDPOINT: ''
+      }
+    });
+
+    const output = stripAnsi(`${result.stdout}${result.stderr}`);
+
+    expect(result.status).toBe(0);
+    expect(output).toContain('Validation finished with 0 failures');
+    expect(output).toContain('measurementId format looks valid');
+    expect(output).toContain('proxy endpoint format looks valid');
+  });
+
+  it('rejects legacy aliases for strict CI production validation', () => {
+    const result = spawnSync(
+      process.execPath,
+      [
+        setupErrorAnalyticsScript,
+        '--require-env',
+        '--require-zendio-env',
+        '--require-proxy-transport'
+      ],
+      {
+        cwd: PROJECT_ROOT,
+        encoding: 'utf8',
+        env: {
+          ...process.env,
+          NODE_OPTIONS: '',
+          ZENDIO_GA_MEASUREMENT_ID: '',
+          ZENDIO_GA_TRANSPORT_MODE: '',
+          ZENDIO_GA_PROXY_ENDPOINT: '',
+          AIIINOB_GA_MEASUREMENT_ID: 'G-ABCD1234',
+          AIIINOB_GA_TRANSPORT_MODE: 'proxy',
+          AIIINOB_GA_PROXY_ENDPOINT: 'https://analytics.example.test/ga4'
+        }
+      }
+    );
+
+    const output = stripAnsi(`${result.stdout}${result.stderr}`);
+
+    expect(result.status).not.toBe(0);
+    expect(output).toContain('ZENDIO_GA_MEASUREMENT_ID is required');
+    expect(output).toContain('ZENDIO_GA_TRANSPORT_MODE is required');
+    expect(output).toContain('ZENDIO_GA_PROXY_ENDPOINT is required');
+  });
+
+  it.each(['disabled', 'directDebug'])(
+    'rejects %s transport for strict CI production validation',
+    (transportMode) => {
+      const result = spawnSync(
+        process.execPath,
+        [
+          setupErrorAnalyticsScript,
+          '--require-env',
+          '--require-zendio-env',
+          '--require-proxy-transport'
+        ],
+        {
+          cwd: PROJECT_ROOT,
+          encoding: 'utf8',
+          env: {
+            ...process.env,
+            NODE_OPTIONS: '',
+            ZENDIO_GA_MEASUREMENT_ID: 'G-ABCD1234',
+            ZENDIO_GA_TRANSPORT_MODE: transportMode,
+            ZENDIO_GA_PROXY_ENDPOINT: 'https://analytics.example.test/ga4',
+            AIIINOB_GA_MEASUREMENT_ID: '',
+            AIIINOB_GA_TRANSPORT_MODE: '',
+            AIIINOB_GA_PROXY_ENDPOINT: ''
+          }
+        }
+      );
+
+      const output = stripAnsi(`${result.stdout}${result.stderr}`);
+
+      expect(result.status).not.toBe(0);
+      expect(output).toContain(
+        `ZENDIO_GA_TRANSPORT_MODE/AIIINOB_GA_TRANSPORT_MODE must be proxy: ${transportMode}`
+      );
+    }
+  );
+
+  it('passes strict CI production validation with canonical Zendio proxy env vars', () => {
+    const result = spawnSync(
+      process.execPath,
+      [
+        setupErrorAnalyticsScript,
+        '--require-env',
+        '--require-zendio-env',
+        '--require-proxy-transport'
+      ],
+      {
+        cwd: PROJECT_ROOT,
+        encoding: 'utf8',
+        env: {
+          ...process.env,
+          NODE_OPTIONS: '',
+          ZENDIO_GA_MEASUREMENT_ID: 'G-ABCD1234',
+          ZENDIO_GA_TRANSPORT_MODE: 'proxy',
+          ZENDIO_GA_PROXY_ENDPOINT: 'https://analytics.example.test/ga4',
+          AIIINOB_GA_MEASUREMENT_ID: '',
+          AIIINOB_GA_TRANSPORT_MODE: '',
+          AIIINOB_GA_PROXY_ENDPOINT: ''
+        }
+      }
+    );
+
+    const output = stripAnsi(`${result.stdout}${result.stderr}`);
+
+    expect(result.status).toBe(0);
+    expect(output).toContain('Validation finished with 0 failures');
+    expect(output).toContain('transport mode is proxy');
+    expect(output).toContain('measurementId format looks valid');
+    expect(output).toContain('proxy endpoint format looks valid');
+  });
+
   it('rejects Google Measurement Protocol endpoints as public proxy endpoint env', () => {
     const endpoints = [
       'https://www.google-analytics.com/mp/collect',

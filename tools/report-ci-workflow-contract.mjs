@@ -3,8 +3,10 @@ import { resolve } from 'node:path';
 
 const ROOT = resolve(new URL('..', import.meta.url).pathname);
 const WORKFLOW_PATH = resolve(ROOT, '.github/workflows/ci.yml');
+const FIREFOX_RELEASE_WORKFLOW_PATH = resolve(ROOT, '.github/workflows/release-firefox-amo.yml');
 const NODE_ACTION_PATH = resolve(ROOT, '.github/actions/setup-node-deps/action.yml');
 const PLAYWRIGHT_ACTION_PATH = resolve(ROOT, '.github/actions/setup-playwright/action.yml');
+const PACKAGE_JSON_PATH = resolve(ROOT, 'package.json');
 
 const REQUIRED_JOB_IDS = [
   'static-preflight',
@@ -68,7 +70,9 @@ function assertJobUsesAction(jobBlock, actionPath, jobId) {
 
 export function checkCiWorkflowContract({
   workflow = readRequired(WORKFLOW_PATH),
+  firefoxReleaseWorkflow = readRequired(FIREFOX_RELEASE_WORKFLOW_PATH),
   nodeAction = readRequired(NODE_ACTION_PATH),
+  packageJson = readRequired(PACKAGE_JSON_PATH),
   playwrightAction = readRequired(PLAYWRIGHT_ACTION_PATH)
 } = {}) {
   const failures = [];
@@ -209,6 +213,138 @@ export function checkCiWorkflowContract({
           npm run test:e2e:browser:reader-panel
           npm run test:e2e:browser:smoke`,
       'workflow'
+    );
+  });
+
+  recordCheck('firefox-release-workflow-contract', () => {
+    assertIncludes(firefoxReleaseWorkflow, 'name: Release Firefox AMO', 'Firefox release workflow');
+    assertIncludes(firefoxReleaseWorkflow, 'workflow_dispatch:', 'Firefox release workflow');
+    assertIncludes(firefoxReleaseWorkflow, "tags:\n      - 'v*'", 'Firefox release workflow');
+    assertIncludes(
+      firefoxReleaseWorkflow,
+      'permissions:\n  contents: read',
+      'Firefox release workflow'
+    );
+    assertIncludes(firefoxReleaseWorkflow, 'uses: actions/checkout@v6', 'Firefox release workflow');
+    assertIncludes(
+      firefoxReleaseWorkflow,
+      'uses: ./.github/actions/setup-node-deps',
+      'Firefox release workflow'
+    );
+    assertIncludes(firefoxReleaseWorkflow, 'FIREFOX_RELEASE_CHANNEL:', 'Firefox release workflow');
+    assertIncludes(
+      firefoxReleaseWorkflow,
+      'FIREFOX_RELEASE_CHANNEL: listed',
+      'Firefox release workflow'
+    );
+    assertIncludes(firefoxReleaseWorkflow, 'id: release_channel', 'Firefox release workflow');
+    assertIncludes(firefoxReleaseWorkflow, 'GITHUB_EVENT_PATH', 'Firefox release workflow');
+    assertIncludes(
+      firefoxReleaseWorkflow,
+      "printf 'FIREFOX_RELEASE_CHANNEL=%s\\n'",
+      'Firefox release workflow'
+    );
+    assertIncludes(
+      firefoxReleaseWorkflow,
+      "printf 'channel=%s\\n'",
+      'Firefox release workflow'
+    );
+    assertIncludes(
+      firefoxReleaseWorkflow,
+      '${safe_ref//[!A-Za-z0-9._-]/-}',
+      'Firefox release workflow'
+    );
+    assertIncludes(
+      firefoxReleaseWorkflow,
+      "printf 'safe_ref=%s\\n'",
+      'Firefox release workflow'
+    );
+    assertIncludes(
+      firefoxReleaseWorkflow,
+      'ZENDIO_GA_MEASUREMENT_ID: ${{ secrets.ZENDIO_GA_MEASUREMENT_ID }}',
+      'Firefox release workflow'
+    );
+    assertIncludes(
+      firefoxReleaseWorkflow,
+      'ZENDIO_GA_TRANSPORT_MODE: proxy',
+      'Firefox release workflow'
+    );
+    assertIncludes(
+      firefoxReleaseWorkflow,
+      'ZENDIO_GA_PROXY_ENDPOINT: ${{ secrets.ZENDIO_GA_PROXY_ENDPOINT }}',
+      'Firefox release workflow'
+    );
+    assertIncludes(
+      firefoxReleaseWorkflow,
+      'WEB_EXT_API_KEY: ${{ secrets.WEB_EXT_API_KEY }}',
+      'Firefox release workflow'
+    );
+    assertIncludes(
+      firefoxReleaseWorkflow,
+      'WEB_EXT_API_SECRET: ${{ secrets.WEB_EXT_API_SECRET }}',
+      'Firefox release workflow'
+    );
+    assertIncludes(
+      firefoxReleaseWorkflow,
+      'npm run analytics:validate:prod:required',
+      'Firefox release workflow'
+    );
+    assertIncludes(
+      firefoxReleaseWorkflow,
+      'npm run build:firefox:prod:ga:ci',
+      'Firefox release workflow'
+    );
+    assertIncludes(
+      firefoxReleaseWorkflow,
+      'node scripts/package-firefox.mjs "${sign_args[@]}"',
+      'Firefox release workflow'
+    );
+    assertIncludes(firefoxReleaseWorkflow, '--approval-timeout 0', 'Firefox release workflow');
+    assertIncludes(
+      firefoxReleaseWorkflow,
+      'npm run audit:ga:client-secret',
+      'Firefox release workflow'
+    );
+    assertIncludes(
+      firefoxReleaseWorkflow,
+      'npm run audit:ga:release-surface -- "${archive_args[@]}"',
+      'Firefox release workflow'
+    );
+    assertIncludes(
+      firefoxReleaseWorkflow,
+      'uses: actions/upload-artifact@v7',
+      'Firefox release workflow'
+    );
+    assertIncludes(
+      firefoxReleaseWorkflow,
+      'name: firefox-amo-${{ steps.release_channel.outputs.channel }}-${{ steps.release_channel.outputs.safe_ref }}-${{ github.run_number }}',
+      'Firefox release workflow'
+    );
+    assertIncludes(firefoxReleaseWorkflow, 'if-no-files-found: error', 'Firefox release workflow');
+    assertNotIncludes(
+      firefoxReleaseWorkflow,
+      'node --env-file=.env.production.local',
+      'Firefox release workflow'
+    );
+    assertNotIncludes(firefoxReleaseWorkflow, 'inputs.channel ||', 'Firefox release workflow');
+    assertNotIncludes(firefoxReleaseWorkflow, 'github.ref_name }}', 'Firefox release workflow');
+    assertNotIncludes(
+      firefoxReleaseWorkflow,
+      'npm run package:firefox\n',
+      'Firefox release workflow'
+    );
+  });
+
+  recordCheck('firefox-release-package-script-contract', () => {
+    assertIncludes(
+      packageJson,
+      '"analytics:validate:prod:required": "node scripts/setup-error-analytics.js --require-env --require-zendio-env --require-proxy-transport"',
+      'package scripts'
+    );
+    assertNotIncludes(
+      packageJson,
+      '"analytics:validate:prod:required": "node --env-file',
+      'package scripts'
     );
   });
 

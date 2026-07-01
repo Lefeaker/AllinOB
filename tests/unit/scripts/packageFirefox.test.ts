@@ -2,16 +2,21 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { WebExtSigningApi } from '../../../scripts/package-firefox.mjs';
 import {
   lintFirefoxExtension,
+  normalizeFirefoxSigningChannel,
   prepareFirefoxReleasePackage,
+  requiresDownloadedSignedArtifact,
   signAndAuditFirefoxPackage
 } from '../../../scripts/package-firefox.mjs';
 
 const tempRoots: string[] = [];
 const RELEASE_DISPLAY_NAME = 'Zendio-All in Obsidian';
 const RELEASE_ARTIFACT_BASE_NAME = `${RELEASE_DISPLAY_NAME}-v0.2.0`;
+
+type MockSignOptions = {
+  artifactsDir?: string;
+};
 
 async function createTempRoot(): Promise<string> {
   const root = await mkdtemp(join(tmpdir(), 'aiiinob-package-firefox-test-'));
@@ -35,6 +40,16 @@ describe('Firefox package signing audit', () => {
   afterEach(async () => {
     await Promise.all(
       tempRoots.splice(0).map((root) => rm(root, { recursive: true, force: true }))
+    );
+  });
+
+  it('accepts only the AMO signing channels supported by web-ext', () => {
+    expect(normalizeFirefoxSigningChannel('listed')).toBe('listed');
+    expect(normalizeFirefoxSigningChannel('unlisted')).toBe('unlisted');
+    expect(requiresDownloadedSignedArtifact('listed')).toBe(false);
+    expect(requiresDownloadedSignedArtifact('unlisted')).toBe(true);
+    expect(() => normalizeFirefoxSigningChannel('self-hosted')).toThrow(
+      'Firefox signing channel must be either "listed" or "unlisted".'
     );
   });
 
@@ -163,7 +178,7 @@ describe('Firefox package signing audit', () => {
     const logger = { log: vi.fn(), warn: vi.fn() };
     const webExt = {
       cmd: {
-        sign: vi.fn(async (options: Record<string, unknown>) => {
+        sign: vi.fn(async (options: MockSignOptions) => {
           const artifactsDir = options.artifactsDir;
           if (typeof artifactsDir !== 'string') {
             throw new Error('Expected artifactsDir to be a string.');
@@ -174,15 +189,23 @@ describe('Firefox package signing audit', () => {
       }
     };
 
-    const signedPath = await signAndAuditFirefoxPackage(createSigningOptions(root), {
-      auditReleaseArchiveImpl,
-      logger,
-      resolvePathImpl: (targetName: string) => join(finalDir, targetName),
-      webExt
-    });
+    const signingResult = await signAndAuditFirefoxPackage(
+      {
+        ...createSigningOptions(root),
+        timeout: 15000,
+        approvalTimeout: 0
+      },
+      {
+        auditReleaseArchiveImpl,
+        logger,
+        resolvePathImpl: (targetName: string) => join(finalDir, targetName),
+        webExt
+      }
+    );
+    const signedPath = signingResult.signedPath;
 
     expect(signedPath).toBe(join(finalDir, `${RELEASE_ARTIFACT_BASE_NAME}-signed.xpi`));
-    await expect(readFile(signedPath, 'utf8')).resolves.toBe('signed-xpi-bytes');
+    await expect(readFile(signedPath ?? '', 'utf8')).resolves.toBe('signed-xpi-bytes');
     expect(auditReleaseArchiveImpl).toHaveBeenCalledWith(signedPath);
     expect(webExt.cmd.sign).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -191,7 +214,9 @@ describe('Firefox package signing audit', () => {
         apiKey: 'api-key',
         apiSecret: 'api-secret',
         channel: 'listed',
-        id: 'extension@example.test'
+        id: 'extension@example.test',
+        timeout: 15000,
+        approvalTimeout: 0
       }),
       { shouldExitProgram: false }
     );
@@ -207,7 +232,7 @@ describe('Firefox package signing audit', () => {
 
     const auditReleaseArchiveImpl = vi.fn().mockResolvedValue(undefined);
     const logger = { log: vi.fn(), warn: vi.fn() };
-    const webExt: WebExtSigningApi = {
+    const webExt = {
       cmd: {
         sign: vi.fn(async () => {
           await writeFile(
@@ -218,25 +243,75 @@ describe('Firefox package signing audit', () => {
       }
     };
 
-    const signedPath = await signAndAuditFirefoxPackage(options, {
+    const signingResult = await signAndAuditFirefoxPackage(options, {
       auditReleaseArchiveImpl,
       logger,
       resolvePathImpl: (targetName: string) => join(finalDir, targetName),
       webExt
     });
+    const signedPath = signingResult.signedPath;
 
     expect(signedPath).toBe(join(finalDir, `${RELEASE_ARTIFACT_BASE_NAME}-signed.xpi`));
-    await expect(readFile(signedPath, 'utf8')).resolves.toBe('signed-xpi-overwritten-by-web-ext');
+    await expect(readFile(signedPath ?? '', 'utf8')).resolves.toBe(
+      'signed-xpi-overwritten-by-web-ext'
+    );
     expect(auditReleaseArchiveImpl).toHaveBeenCalledWith(signedPath);
   });
 
-  it('fails signing mode when Mozilla signing produces no XPI artifact', async () => {
+  it('submits listed AMO releases without requiring an immediate signed XPI download', async () => {
     const root = await createTempRoot();
     const auditReleaseArchiveImpl = vi.fn().mockResolvedValue(undefined);
     const logger = { log: vi.fn(), warn: vi.fn() };
     const webExt = {
       cmd: {
-        sign: vi.fn(async (options: Record<string, unknown>) => {
+        sign: vi.fn(async (options: MockSignOptions) => {
+          const artifactsDir = options.artifactsDir;
+          if (typeof artifactsDir !== 'string') {
+            throw new Error('Expected artifactsDir to be a string.');
+          }
+          await mkdir(artifactsDir, { recursive: true });
+          await writeFile(join(artifactsDir, 'submission-result.json'), '{"id":"addon-id"}');
+          return { id: 'addon-id' };
+        })
+      }
+    };
+
+    await expect(
+      signAndAuditFirefoxPackage(
+        {
+          ...createSigningOptions(root),
+          channel: 'listed',
+          approvalTimeout: 0
+        },
+        {
+          auditReleaseArchiveImpl,
+          logger,
+          resolvePathImpl: (targetName: string) => join(root, targetName),
+          webExt
+        }
+      )
+    ).resolves.toMatchObject({
+      channel: 'listed',
+      signedPath: null,
+      webExtResult: { id: 'addon-id' }
+    });
+    expect(auditReleaseArchiveImpl).not.toHaveBeenCalled();
+    expect(webExt.cmd.sign).toHaveBeenCalledWith(
+      expect.objectContaining({
+        approvalTimeout: 0,
+        channel: 'listed'
+      }),
+      { shouldExitProgram: false }
+    );
+  });
+
+  it('fails unlisted signing mode when Mozilla signing produces no XPI artifact', async () => {
+    const root = await createTempRoot();
+    const auditReleaseArchiveImpl = vi.fn().mockResolvedValue(undefined);
+    const logger = { log: vi.fn(), warn: vi.fn() };
+    const webExt = {
+      cmd: {
+        sign: vi.fn(async (options: MockSignOptions) => {
           const artifactsDir = options.artifactsDir;
           if (typeof artifactsDir !== 'string') {
             throw new Error('Expected artifactsDir to be a string.');
@@ -248,12 +323,18 @@ describe('Firefox package signing audit', () => {
     };
 
     await expect(
-      signAndAuditFirefoxPackage(createSigningOptions(root), {
-        auditReleaseArchiveImpl,
-        logger,
-        resolvePathImpl: (targetName: string) => join(root, targetName),
-        webExt
-      })
+      signAndAuditFirefoxPackage(
+        {
+          ...createSigningOptions(root),
+          channel: 'unlisted'
+        },
+        {
+          auditReleaseArchiveImpl,
+          logger,
+          resolvePathImpl: (targetName: string) => join(root, targetName),
+          webExt
+        }
+      )
     ).rejects.toThrow('Firefox signing did not produce a signed XPI artifact.');
     expect(auditReleaseArchiveImpl).not.toHaveBeenCalled();
   });
