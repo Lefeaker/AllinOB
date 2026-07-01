@@ -36,6 +36,7 @@
     "audit:locales:report": "node tools/report-locale-source-alignment.mjs",
     "audit:imports:report": "node tools/report-deep-imports.mjs",
     "audit:imports:check": "node tools/report-deep-imports.mjs --check",
+    "audit:chrome-webstore-release:check": "node tools/report-chrome-webstore-release-workflow.mjs --check",
     "audit:components:report": "node tools/report-component-entry-alignment.mjs",
     "audit:compatibility-duplicates:report": "node tools/report-compatibility-duplicates.mjs",
     "audit:compatibility-duplicates:check": "node tools/report-compatibility-duplicates.mjs --check",

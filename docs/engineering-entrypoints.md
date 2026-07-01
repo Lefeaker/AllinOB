@@ -18,6 +18,7 @@
   - 显式包含 `typecheck:tests`
   - 显式包含 `typecheck:strict`
   - 显式包含 `audit:ga:proxy-contract`、`audit:ga:docs` 与 `audit:ga:legacy-api`
+  - 显式包含 `audit:chrome-webstore-release:check`，守住 Chrome Web Store 自动发布 workflow 必须绑定受保护 `chrome-webstore-release` Environment、使用 GA public config、archive-level GA 审计与显式 `--publish`
   - `audit:ga:proxy-contract` check mode 以 source-derived contract 为当前真值，并刷新 ignored `build/reports/ga-proxy-contract.json` 供 `audit:ga:docs` 复用；stale / missing / invalid report 不得阻塞当前 source contract
   - 显式执行 production `build:fast` 后运行 `audit:release-surface:report`
   - 显式在 production `build:fast` 后运行 `audit:ga:client-secret` 与 `audit:ga:release-surface`
@@ -173,9 +174,24 @@ acceptable when a surrounding standalone quality gate has already passed.
 `release:chrome` is a dry-run alias. A real Chrome Web Store publish must use
 `npm run release:chrome:publish -- --zip <release.zip>` with owner-provided
 credentials and manual confirmation.
+`.github/workflows/release-chrome-webstore.yml` is the automated Chrome Web
+Store publish path. Its release job must bind `environment:
+chrome-webstore-release`; owner-managed GitHub Environment protection rules must
+enable Required reviewers for that Environment. The job reads
+`ZENDIO_GA_MEASUREMENT_ID`, `ZENDIO_GA_TRANSPORT_MODE`, and
+`ZENDIO_GA_PROXY_ENDPOINT` from Environment Variables, fails closed when any are
+missing, runs `analytics:validate:prod`, `quality`, a production Chrome build,
+`package:ci`, archive-level `audit:ga:client-secret` /
+`audit:ga:release-surface`, and only then calls
+`node scripts/publish-chrome-webstore.mjs --publish --zip <zip>`.
+The workflow contract is guarded by `npm run audit:chrome-webstore-release:check`.
 
 GA production release public config is loaded from ignored
-`.env.production.local`. The reusable owner commands are:
+`.env.production.local` for local owner runs. The Chrome Web Store GitHub
+Actions release workflow reads the same public values from the protected
+`chrome-webstore-release` Environment Variables; Chrome Web Store credentials
+belong in the same Environment Secrets, not repository-level Secrets.
+The reusable owner commands are:
 
 ```bash
 npm run analytics:validate:prod
@@ -202,6 +218,8 @@ and public env shape, but it still does not prove real GA property delivery,
 DebugView visibility, or server-side `api_secret` injection. If
 `.env.production.local` is absent, the validator still runs and reports missing
 public values as warnings.
+The Chrome Web Store release workflow adds its own fail-closed shell checks for
+missing public GA build config before any production package is built.
 `audit:ga:proxy-contract` / `audit:ga:docs` / `audit:ga:legacy-api` are
 deterministic static gates and are wired into `quality` and `verify:preflight`.
 `audit:ga:client-secret` scans client runtime `src/**` plus the current

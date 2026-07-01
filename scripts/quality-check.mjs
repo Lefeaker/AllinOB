@@ -87,6 +87,11 @@ export function createQualityTaskGraph() {
         'run',
         'audit:ci-workflow:check'
       ]),
+      task('audit-chrome-webstore-release-check', 'Chrome Web Store GA 发布流程守卫', [
+        'npm',
+        'run',
+        'audit:chrome-webstore-release:check'
+      ]),
       task('audit-build-graph-report', 'Production build graph 守卫', [
         'npm',
         'run',
