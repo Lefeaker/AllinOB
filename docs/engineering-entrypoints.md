@@ -1,6 +1,6 @@
 # 工程命令与入口
 
-最后更新：2026-06-30
+最后更新：2026-07-01
 
 ## 推荐运行环境
 
@@ -58,6 +58,7 @@
   - `scripts/build.mjs` 从 `package.json` 读取版本号，并注入 `__ZENDIO_EXTENSION_VERSION__` / `__AIIINOB_EXTENSION_VERSION__` 作为 Options 等无 platform manifest 场景的版本 fallback；不要在 UI 代码中硬编码 release version
   - `scripts/build.mjs` 支持 `--outdir` / `BUILD_DIST_DIR`；`scripts/package.mjs` 与 `scripts/package-firefox.mjs` 支持 `--dist-dir`
   - `build:chrome:isolated` / `build:firefox:isolated` 与 `package:chrome:isolated` / `package:firefox:isolated` 使用独立 dist 目录，作为 Chrome / Firefox package 并行化的安全入口
+  - Firefox AMO 自动发布入口为 `.github/workflows/release-firefox-amo.yml`；该 workflow 在 tag `v*` 与手动触发时使用 repository secrets 注入 GA public config 与 AMO API credentials，运行 `analytics:validate:prod:required`、`build:firefox:prod:ga:ci`、生成并审计 AMO source archive、`web-ext` signing submission、GA secret / release-surface archive audits，并上传生成的 XPI 与 `build/firefox-source/**/*-source.zip` artifact
 - `.github/workflows/ci.yml`
   - 采用拆分后的并行 job 拓扑：`static-preflight`、`static-release-surface`、`static-generated-artifacts`、`static-style-and-locale`、`static-reporting-audits`、`coverage`、`visual` matrix、`e2e-vitest`、`browser-yaml`、`browser-reader-panel`、`browser-smoke` 并行执行
   - 使用 workflow-level `concurrency`，同一 PR / ref 的新 run 会取消旧 run
@@ -68,6 +69,12 @@
   - `static-style-and-locale` 保留 locale source alignment、Options CSS naming、hardcoded config guard 与 lint warning guard 的 hard gate 语义；`static-reporting-audits` 仅保留 report-only audit 的 per-step `continue-on-error`
   - `visual` 按 `chromium-desktop` / `chromium-tablet` / `chromium-mobile` matrix 拆分；Vitest E2E 与三组 browser E2E 拆成独立 job，失败报告 artifact 按 suite 命名
   - `package` job 通过 `needs: [static-preflight]` 提前启动，并继续使用 `npm run build:fast`，避免在 CI 后段通过 `npm run build` 重复触发完整 `quality`；测试、visual、release-surface 与静态拆分 job 仍应作为独立 required checks 参与合并判断
+- `.github/workflows/release-firefox-amo.yml`
+  - Firefox AMO 自动发布支持 tag `v*` 触发与 `workflow_dispatch` 手动触发；手动触发可选择 `listed` 或 `unlisted`，tag 触发默认 `listed`
+  - Workflow 只读取 `contents: read` 权限，不写 GitHub release；发布凭据只来自 `WEB_EXT_API_KEY` / `WEB_EXT_API_SECRET` repository secrets，GA public config 只来自 `ZENDIO_GA_MEASUREMENT_ID` / `ZENDIO_GA_PROXY_ENDPOINT` secrets 与固定 `ZENDIO_GA_TRANSPORT_MODE=proxy`
+  - `listed` 渠道使用 `--approval-timeout 0` 提交 AMO 审核，不要求 CI 立即下载 signed XPI；`unlisted` 渠道必须产出根目录 signed XPI，并与 unsigned XPI 一起进入 GA release-surface archive audit
+  - 签名流程默认生成 `<扩展名>-v<版本号>-source.zip` 并通过 `web-ext.cmd.sign({ uploadSourceCode })` 上传；源码包包含 `AMO_SOURCE_REVIEW.md` 与复现构建所需白名单输入，并拒绝 `.env*`、`node_modules/`、`build/`、`.worktrees/`、XPI/ZIP 与私钥类文件
+  - `.github/workflows/release-firefox-amo.yml` 的核心契约由 `npm run audit:ci-workflow:check` 与 `tests/unit/tools/ciWorkflow.test.ts` 守住；不要把该 workflow 改回依赖本机 `.env.production.local` 的命令
 - 2026-06-23 post-0.2.0 P07 performance observability truth：在 branch `codex/aiiinob-post-020-p07-performance-observability-2026-06-22` / source baseline commit `7495ab47` 重新采集 production `build:fast`、dev `build:dev`、`audit:build:report`、`audit:release-surface:report`、`audit:performance:report`、`audit:deps:report`、`audit:platform-boundary:report`、`audit:non-production-source:report`、`lint:type-any` 与 `lint:warnings-guard`；P07 后续只同步 docs、tool budget ratchets 与对应 tool test expectation。Fresh production build report 为 `content/runtime.js` raw `50,167` bytes、`onboarding/index.js` raw `1,130` bytes、chunks `86`；fresh dev report 为 `content/runtime.js` raw `58,694` bytes、`onboarding/index.js` raw `1,751` bytes、chunks `100`。Dev `content/runtime.js` remains above warning target `58,564` but below hard stop `58,752`; P07 intentionally did not loosen this build budget. `audit:release-surface:report` 为 `Files=180`、forbidden harness/pseudo-locale `none`；`audit:performance:report` 为 `sourceFiles=875`、`hotspotsOver250=111`、`registeredLineBudgets=149`，并将 36 个 stale line budgets 收紧到 fresh line count；`audit:deps:report` 为 `modules=993`、`dependencies=3032`、`violations=0`；`audit:platform-boundary:report` 为 total `141`；`audit:non-production-source:report` decision counts 为 `retain-production: 718`、`migrate-import-owner: 164`、`retain-production-facade: 17`；`lint:type-any` 为 overall `0/1187/1987/49/3`、src `0/666/715/8/0`、tests `0/521/1272/41/3`；`lint:warnings-guard` 当前 warning count 为 `157`（baseline `160`）。
 - 2026-05-22 final exit gate 真值：在 Node `v20.20.2` / npm `10.8.2` 下，`quality`、`verify:preflight`、`test:unit`、`clean`、`build:dev`、`audit:build:report`、`audit:performance:report`、`verify:stitch-secondary`、`visual:test`、browser smoke、reader-panel、local-vault 均已通过；`build/dist/content/runtime.js` raw `54,554` bytes，低于当时 `57,600` stop gate
 - 2026-05-24 M2.5 budget ratchet 真值：M2.1-M2.4 合入后，`audit:build:report` 的 `content/runtime.js` raw stop gate 收紧为 `56,320` bytes；chunk count 收紧为 `<= 112`；hotspot line budgets 以 `docs/performance-baseline.md` 为准
@@ -195,10 +202,13 @@ The reusable owner commands are:
 
 ```bash
 npm run analytics:validate:prod
+npm run analytics:validate:prod:required
 npm run analytics:smoke:delivery
 npm run build:prod:ga
 npm run package:prod:ga
 npm run package:firefox:prod:ga
+npm run build:firefox:prod:ga:ci
+npm run package:firefox:prod:ga:ci
 npm run release:prod:ga
 node scripts/run-ga-owner-smoke.mjs --mode proxy --event runtime_harness_open
 node scripts/run-ga-owner-smoke.mjs --mode directDebug --event runtime_harness_open
@@ -219,7 +229,15 @@ DebugView visibility, or server-side `api_secret` injection. If
 `.env.production.local` is absent, the validator still runs and reports missing
 public values as warnings.
 The Chrome Web Store release workflow adds its own fail-closed shell checks for
-missing public GA build config before any production package is built.
+missing protected Environment public GA build config before any production
+package is built.
+`analytics:validate:prod:required` runs the same contract but is the strict CI /
+release automation entry: it does not load `.env.production.local`, requires
+canonical `ZENDIO_GA_MEASUREMENT_ID` / `ZENDIO_GA_TRANSPORT_MODE` /
+`ZENDIO_GA_PROXY_ENDPOINT`, and requires `ZENDIO_GA_TRANSPORT_MODE=proxy`. The
+`*:ci` Firefox GA package scripts likewise do not load `.env.production.local`;
+they expect CI environment variables or repository secrets to be injected by the
+caller.
 `audit:ga:proxy-contract` / `audit:ga:docs` / `audit:ga:legacy-api` are
 deterministic static gates and are wired into `quality` and `verify:preflight`.
 `audit:ga:client-secret` scans client runtime `src/**` plus the current

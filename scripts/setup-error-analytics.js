@@ -137,10 +137,16 @@ export function collectTrackedAnalyticsSourceContract(projectRoot = rootDir) {
     'src/shared/analytics/analyticsEventMessage.ts'
   );
   const analyticsIndex = readFromRoot(projectRoot, 'src/shared/analytics/index.ts');
-  const analyticsEnvironment = readFromRoot(projectRoot, 'src/shared/analytics/analyticsEnvironment.ts');
+  const analyticsEnvironment = readFromRoot(
+    projectRoot,
+    'src/shared/analytics/analyticsEnvironment.ts'
+  );
   const analyticsConsent = readFromRoot(projectRoot, 'src/shared/analytics/analyticsConsent.ts');
   const analyticsQueue = readFromRoot(projectRoot, 'src/shared/analytics/analyticsQueue.ts');
-  const analyticsTransport = readFromRoot(projectRoot, 'src/shared/analytics/analyticsTransport.ts');
+  const analyticsTransport = readFromRoot(
+    projectRoot,
+    'src/shared/analytics/analyticsTransport.ts'
+  );
   const analyticsProxyContractPath = 'src/shared/analytics/analyticsProxyContract.ts';
   const analyticsProxyContractExists = existsFromRoot(projectRoot, analyticsProxyContractPath);
   const analyticsProxyContract = analyticsProxyContractExists
@@ -420,7 +426,9 @@ function validateTrackedConfig() {
     !trackedContract.proxyContractSourceLeaksSensitiveAnchors &&
     trackedContract.proxyContractReportSourceAnchorsPresent
   ) {
-    ok('analytics proxy contract source/barrel/report anchors stay wired to the public allowlist contract');
+    ok(
+      'analytics proxy contract source/barrel/report anchors stay wired to the public allowlist contract'
+    );
   } else {
     if (!trackedContract.proxyContractSourcePresent) {
       fail('analytics proxy contract source is missing');
@@ -605,9 +613,7 @@ function isGoogleMeasurementProtocolEndpointUrl(url) {
 
   return (
     pathParts.length > 0 &&
-    GOOGLE_MEASUREMENT_PROTOCOL_PATH_PARTS.some(
-      (parts) => pathParts.join('/') === parts.join('/')
-    )
+    GOOGLE_MEASUREMENT_PROTOCOL_PATH_PARTS.some((parts) => pathParts.join('/') === parts.join('/'))
   );
 }
 
@@ -634,9 +640,16 @@ function isGoogleAnalyticsHost(hostname) {
   return hostname === googleAnalyticsHost || hostname.endsWith(`.${googleAnalyticsHost}`);
 }
 
-function validateEnvironmentVariables() {
+function validateEnvironmentVariables({
+  requirePublicEnv = false,
+  requireZendioEnv = false,
+  requiredTransportMode
+} = {}) {
   info('Checking current shell environment');
 
+  const zendioMeasurementId = (process.env.ZENDIO_GA_MEASUREMENT_ID || '').trim();
+  const zendioTransportMode = (process.env.ZENDIO_GA_TRANSPORT_MODE || '').trim();
+  const zendioProxyEndpoint = (process.env.ZENDIO_GA_PROXY_ENDPOINT || '').trim();
   const measurementId = resolvePublicEnv('ZENDIO_GA_MEASUREMENT_ID', 'AIIINOB_GA_MEASUREMENT_ID');
   const transportMode = resolvePublicEnv('ZENDIO_GA_TRANSPORT_MODE', 'AIIINOB_GA_TRANSPORT_MODE');
   const proxyEndpoint = resolvePublicEnv('ZENDIO_GA_PROXY_ENDPOINT', 'AIIINOB_GA_PROXY_ENDPOINT');
@@ -662,7 +675,22 @@ function validateEnvironmentVariables() {
     ok('local shell/build env contains only public GA config keys');
   }
 
+  if (requireZendioEnv) {
+    if (!zendioTransportMode) {
+      fail('ZENDIO_GA_TRANSPORT_MODE is required');
+    }
+    if (!zendioMeasurementId) {
+      fail('ZENDIO_GA_MEASUREMENT_ID is required');
+    }
+    if (!zendioProxyEndpoint) {
+      fail('ZENDIO_GA_PROXY_ENDPOINT is required');
+    }
+  }
+
   if (!transportMode) {
+    if (requirePublicEnv) {
+      fail('ZENDIO_GA_TRANSPORT_MODE/AIIINOB_GA_TRANSPORT_MODE is required');
+    }
     warn(
       'ZENDIO_GA_TRANSPORT_MODE/AIIINOB_GA_TRANSPORT_MODE is unset; builds will default to disabled'
     );
@@ -672,7 +700,21 @@ function validateEnvironmentVariables() {
     ok(`transport mode is ${transportMode}`);
   }
 
+  if (
+    typeof requiredTransportMode === 'string' &&
+    requiredTransportMode.length > 0 &&
+    transportMode &&
+    transportMode !== requiredTransportMode
+  ) {
+    fail(
+      `ZENDIO_GA_TRANSPORT_MODE/AIIINOB_GA_TRANSPORT_MODE must be ${requiredTransportMode}: ${transportMode}`
+    );
+  }
+
   if (!measurementId) {
+    if (requirePublicEnv) {
+      fail('ZENDIO_GA_MEASUREMENT_ID/AIIINOB_GA_MEASUREMENT_ID is required');
+    }
     warn('ZENDIO_GA_MEASUREMENT_ID/AIIINOB_GA_MEASUREMENT_ID is unset');
   } else if (!/^G-[A-Z0-9-]{4,48}$/i.test(measurementId) || /X{4,}/i.test(measurementId)) {
     fail(`measurementId format is invalid: ${measurementId}`);
@@ -704,6 +746,9 @@ function validateEnvironmentVariables() {
   } else if (transportMode === 'proxy' || transportMode === 'directDebug') {
     fail(`${transportMode} transport requires ZENDIO_GA_PROXY_ENDPOINT/AIIINOB_GA_PROXY_ENDPOINT`);
   } else {
+    if (requirePublicEnv) {
+      fail('ZENDIO_GA_PROXY_ENDPOINT/AIIINOB_GA_PROXY_ENDPOINT is required');
+    }
     warn('ZENDIO_GA_PROXY_ENDPOINT/AIIINOB_GA_PROXY_ENDPOINT is unset');
   }
 }
@@ -720,18 +765,26 @@ function printSummary() {
   info('The repo remains proxy-first and client-side public-config-only.');
 }
 
-export function runAnalyticsValidation() {
+export function runAnalyticsValidation({
+  requirePublicEnv = false,
+  requireZendioEnv = false,
+  requiredTransportMode
+} = {}) {
   failures = 0;
   warnings = 0;
   validateRequiredFiles();
   validateTrackedConfig();
   validateBuildInjection();
   validatePrivacyWiring();
-  validateEnvironmentVariables();
+  validateEnvironmentVariables({ requirePublicEnv, requireZendioEnv, requiredTransportMode });
   printSummary();
   return { failures, warnings };
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === __filename) {
-  runAnalyticsValidation();
+  runAnalyticsValidation({
+    requirePublicEnv: process.argv.includes('--require-env'),
+    requireZendioEnv: process.argv.includes('--require-zendio-env'),
+    requiredTransportMode: process.argv.includes('--require-proxy-transport') ? 'proxy' : undefined
+  });
 }

@@ -99,6 +99,7 @@
   - `npm run verify:preflight`
   - `npm run verify:stitch-secondary`
   - `npm run build`
+- Firefox AMO automation lives in `.github/workflows/release-firefox-amo.yml`; it builds the Firefox GA production package, submits listed/unlisted releases with `web-ext`, and audits generated XPI archives before uploading workflow artifacts.
 
 ## Permissions
 

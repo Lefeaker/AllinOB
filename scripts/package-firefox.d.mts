@@ -6,6 +6,16 @@ export type FirefoxSigningOptions = {
   apiSecret: string;
   channel: string;
   extensionId?: string;
+  uploadSourceCodePath?: string;
+  timeout?: number;
+  approvalTimeout?: number;
+};
+
+export type FirefoxSigningResult = {
+  artifactBaseName: string;
+  channel: 'listed' | 'unlisted';
+  signedPath: string | null;
+  webExtResult?: unknown;
 };
 
 export type WebExtSigningApi = {
@@ -13,7 +23,7 @@ export type WebExtSigningApi = {
     sign: (
       options: Record<string, unknown>,
       runnerOptions: { shouldExitProgram: boolean }
-    ) => Promise<void>;
+    ) => Promise<unknown>;
   };
 };
 
@@ -65,7 +75,7 @@ export type FirefoxSigningDependencies = {
   runSigningImpl?: (
     options: FirefoxSigningOptions,
     dependencies?: FirefoxSigningDependencies
-  ) => Promise<string | null>;
+  ) => Promise<FirefoxSigningResult>;
   statImpl?: (path: string) => Promise<{ mtimeMs: number; size: number }>;
   webExt?: WebExtSigningApi;
 };
@@ -102,6 +112,39 @@ export type FirefoxReleasePackageDependencies = {
   writeFileImpl?: (path: string, content: string) => Promise<void>;
 };
 
+export type FirefoxAmoSourceArchiveSigningOptions = {
+  artifactBaseName: string;
+  releaseXpiName?: string;
+  version: string;
+  uploadSourceCodePath?: string;
+  sourceArchiveOutputDir?: string;
+};
+
+export type FirefoxAmoSourceArchiveSigningDependencies = {
+  auditFirefoxAmoSourceArchiveImpl?: (archivePath: string) => Promise<unknown>;
+  createFirefoxAmoSourceArchiveImpl?: (
+    options: {
+      repoRoot?: string;
+      outputDir?: string;
+      artifactBaseName: string;
+      releaseXpiName?: string;
+      version: string;
+    },
+    dependencies?: {
+      logger?: {
+        log: (...args: unknown[]) => void;
+        warn?: (...args: unknown[]) => void;
+      };
+    }
+  ) => Promise<{ archivePath: string }>;
+  logger?: {
+    log: (...args: unknown[]) => void;
+    warn?: (...args: unknown[]) => void;
+  };
+  repoRoot?: string;
+  resolvePathImpl?: (path: string) => string;
+};
+
 export function createUnsignedXpi(
   distDir: string,
   resolvedName: string,
@@ -113,14 +156,23 @@ export function lintFirefoxExtension(
   dependencies?: FirefoxLintDependencies
 ): Promise<FirefoxLintResult>;
 
+export function normalizeFirefoxSigningChannel(channel: string): 'listed' | 'unlisted';
+
+export function requiresDownloadedSignedArtifact(channel: string): boolean;
+
 export function runSigning(
   options: FirefoxSigningOptions,
   dependencies?: FirefoxSigningDependencies
-): Promise<string | null>;
+): Promise<FirefoxSigningResult>;
 
 export function signAndAuditFirefoxPackage(
   options: FirefoxSigningOptions,
   dependencies?: FirefoxSigningDependencies
+): Promise<FirefoxSigningResult>;
+
+export function resolveFirefoxAmoSourceArchiveForSigning(
+  options: FirefoxAmoSourceArchiveSigningOptions,
+  dependencies?: FirefoxAmoSourceArchiveSigningDependencies
 ): Promise<string>;
 
 export function prepareFirefoxReleasePackage(

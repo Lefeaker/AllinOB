@@ -9,9 +9,14 @@ import {
   createReleaseArtifactBaseName,
   createReleaseArtifactFileName
 } from './utils/releaseArtifactNames.mjs';
+import {
+  auditFirefoxAmoSourceArchive,
+  createFirefoxAmoSourceArchive
+} from './utils/firefoxAmoSourceArchive.mjs';
 import { auditReleaseArchive } from '../tools/audit-release-archive.mjs';
 
 const args = process.argv.slice(2);
+const FIREFOX_SIGNING_CHANNELS = new Set(['listed', 'unlisted']);
 
 function hasFlag(flag) {
   return args.includes(flag);
@@ -27,6 +32,29 @@ function getFlagValue(flag, { defaultValue } = {}) {
     throw new Error(`参数 ${flag} 缺少取值`);
   }
   return value;
+}
+
+function getOptionalNumberFlagValue(flag) {
+  const rawValue = getFlagValue(flag, { defaultValue: undefined });
+  if (rawValue === undefined) {
+    return undefined;
+  }
+  if (!/^(0|[1-9]\d*)$/.test(rawValue)) {
+    throw new Error(`参数 ${flag} 必须是非负整数毫秒值`);
+  }
+  return Number(rawValue);
+}
+
+export function normalizeFirefoxSigningChannel(channel) {
+  const normalized = String(channel ?? '').trim();
+  if (!FIREFOX_SIGNING_CHANNELS.has(normalized)) {
+    throw new Error('Firefox signing channel must be either "listed" or "unlisted".');
+  }
+  return normalized;
+}
+
+export function requiresDownloadedSignedArtifact(channel) {
+  return normalizeFirefoxSigningChannel(channel) === 'unlisted';
 }
 
 export async function createUnsignedXpi(distDir, _resolvedName, version) {
@@ -157,7 +185,18 @@ function findUpdatedSignedArtifact(beforeSnapshot, afterSnapshot) {
 }
 
 export async function runSigning(
-  { distDir, artifactsDir, artifactBaseName, apiKey, apiSecret, channel, extensionId },
+  {
+    distDir,
+    artifactsDir,
+    artifactBaseName,
+    apiKey,
+    apiSecret,
+    channel,
+    extensionId,
+    uploadSourceCodePath,
+    timeout,
+    approvalTimeout
+  },
   dependencies = {}
 ) {
   const {
@@ -172,6 +211,7 @@ export async function runSigning(
     webExt
   } = dependencies;
   const resolvedWebExt = webExt ?? (await importWebExtImpl());
+  const normalizedChannel = normalizeFirefoxSigningChannel(channel);
 
   if (!(await pathExistsImpl(artifactsDir))) {
     await mkdirImpl(artifactsDir, { recursive: true });
@@ -184,18 +224,27 @@ export async function runSigning(
 
   logger.log('🔏 正在请求 Mozilla 签名服务...');
 
+  const signOptions = {
+    sourceDir: distDir,
+    artifactsDir,
+    apiKey,
+    apiSecret,
+    channel: normalizedChannel,
+    id: extensionId
+  };
+  if (uploadSourceCodePath) {
+    signOptions.uploadSourceCode = uploadSourceCodePath;
+  }
+  if (timeout !== undefined) {
+    signOptions.timeout = timeout;
+  }
+  if (approvalTimeout !== undefined) {
+    signOptions.approvalTimeout = approvalTimeout;
+  }
+
+  let webExtResult;
   try {
-    await resolvedWebExt.cmd.sign(
-      {
-        sourceDir: distDir,
-        artifactsDir,
-        apiKey,
-        apiSecret,
-        channel,
-        id: extensionId
-      },
-      { shouldExitProgram: false }
-    );
+    webExtResult = await resolvedWebExt.cmd.sign(signOptions, { shouldExitProgram: false });
   } catch (error) {
     throw new Error(`web-ext 签名失败: ${error.message}`);
   }
@@ -208,7 +257,12 @@ export async function runSigning(
 
   if (!latestSigned) {
     logger.warn('⚠️  未找到签名后的 XPI 文件，请检查 web-ext 输出日志。');
-    return null;
+    return {
+      artifactBaseName,
+      channel: normalizedChannel,
+      signedPath: null,
+      webExtResult
+    };
   }
 
   const signedSource = join(artifactsDir, latestSigned);
@@ -221,20 +275,63 @@ export async function runSigning(
   logger.log(`   签名文件: ${signedTargetPath}`);
   logger.log(`   原始文件: ${signedSource}`);
 
-  return signedTargetPath;
+  return {
+    artifactBaseName,
+    channel: normalizedChannel,
+    signedPath: signedTargetPath,
+    webExtResult
+  };
 }
 
 export async function signAndAuditFirefoxPackage(signingOptions, dependencies = {}) {
   const { auditReleaseArchiveImpl = auditReleaseArchive, runSigningImpl = runSigning } =
     dependencies;
-  const signedPath = await runSigningImpl(signingOptions, dependencies);
+  const result = await runSigningImpl(signingOptions, dependencies);
 
-  if (!signedPath) {
+  if (!result.signedPath && requiresDownloadedSignedArtifact(result.channel)) {
     throw new Error('Firefox signing did not produce a signed XPI artifact.');
   }
 
-  await auditReleaseArchiveImpl(signedPath);
-  return signedPath;
+  if (result.signedPath) {
+    await auditReleaseArchiveImpl(result.signedPath);
+  }
+  return result;
+}
+
+export async function resolveFirefoxAmoSourceArchiveForSigning(options, dependencies = {}) {
+  const {
+    artifactBaseName,
+    releaseXpiName = `${artifactBaseName}.xpi`,
+    version,
+    uploadSourceCodePath,
+    sourceArchiveOutputDir = 'build/firefox-source'
+  } = options;
+  const {
+    auditFirefoxAmoSourceArchiveImpl = auditFirefoxAmoSourceArchive,
+    createFirefoxAmoSourceArchiveImpl = createFirefoxAmoSourceArchive,
+    logger = console,
+    repoRoot = process.cwd(),
+    resolvePathImpl = resolve
+  } = dependencies;
+
+  if (uploadSourceCodePath) {
+    const resolvedPath = resolvePathImpl(uploadSourceCodePath);
+    await auditFirefoxAmoSourceArchiveImpl(resolvedPath);
+    logger.log(`🧾 Firefox AMO source archive: ${resolvedPath}`);
+    return resolvedPath;
+  }
+
+  const sourceArchive = await createFirefoxAmoSourceArchiveImpl(
+    {
+      repoRoot,
+      outputDir: sourceArchiveOutputDir,
+      artifactBaseName,
+      releaseXpiName,
+      version
+    },
+    { logger }
+  );
+  return sourceArchive.archivePath;
 }
 
 export async function prepareFirefoxReleasePackage({ distDir }, dependencies = {}) {
@@ -310,8 +407,17 @@ export async function packageFirefoxExtension() {
 
   const apiKey = getFlagValue('--api-key', { defaultValue: process.env.WEB_EXT_API_KEY });
   const apiSecret = getFlagValue('--api-secret', { defaultValue: process.env.WEB_EXT_API_SECRET });
-  const channel = getFlagValue('--channel', { defaultValue: 'listed' });
+  const channel = normalizeFirefoxSigningChannel(
+    getFlagValue('--channel', { defaultValue: 'listed' })
+  );
+  const timeout = getOptionalNumberFlagValue('--timeout');
+  const explicitApprovalTimeout = getOptionalNumberFlagValue('--approval-timeout');
+  const approvalTimeout = explicitApprovalTimeout ?? (channel === 'listed' ? 0 : undefined);
   const artifactsDir = getFlagValue('--artifacts-dir', { defaultValue: 'build/firefox-artifacts' });
+  const uploadSourceCodePath = getFlagValue('--upload-source-code', { defaultValue: undefined });
+  const sourceArchiveOutputDir = getFlagValue('--source-archive-dir', {
+    defaultValue: 'build/firefox-source'
+  });
 
   if (!apiKey || !apiSecret) {
     console.error('❌ 签名模式需要提供 WEB_EXT_API_KEY 和 WEB_EXT_API_SECRET。');
@@ -319,15 +425,31 @@ export async function packageFirefoxExtension() {
     process.exit(1);
   }
 
-  await signAndAuditFirefoxPackage({
+  const resolvedUploadSourceCodePath = await resolveFirefoxAmoSourceArchiveForSigning({
+    artifactBaseName,
+    releaseXpiName: xpiName,
+    version: manifest.version,
+    uploadSourceCodePath,
+    sourceArchiveOutputDir
+  });
+
+  const signingResult = await signAndAuditFirefoxPackage({
     distDir,
     artifactsDir,
     artifactBaseName,
     apiKey,
     apiSecret,
     channel,
-    extensionId: manifest?.browser_specific_settings?.gecko?.id
+    extensionId: manifest?.browser_specific_settings?.gecko?.id,
+    uploadSourceCodePath: resolvedUploadSourceCodePath,
+    timeout,
+    approvalTimeout
   });
+
+  if (!signingResult.signedPath) {
+    console.log('✅ 已提交到 Mozilla Add-ons。');
+    console.log('   listed 渠道会等待 AMO 审核；审核通过后由 AMO 侧提供签名产物。');
+  }
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {

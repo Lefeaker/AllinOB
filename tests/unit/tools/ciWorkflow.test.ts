@@ -5,6 +5,14 @@ function readCiWorkflow(): string {
   return readFileSync(resolve('.github/workflows/ci.yml'), 'utf8');
 }
 
+function readFirefoxReleaseWorkflow(): string {
+  return readFileSync(resolve('.github/workflows/release-firefox-amo.yml'), 'utf8');
+}
+
+function readPackageJson(): string {
+  return readFileSync(resolve('package.json'), 'utf8');
+}
+
 function readWorkflowSupportFile(path: string): string {
   return readFileSync(resolve(path), 'utf8');
 }
@@ -60,5 +68,52 @@ describe('CI workflow wiring', () => {
     expect(setupNodeAction).not.toMatch(/actions\/setup-node@v[1-5]\b/);
     expect(workflow).not.toMatch(/actions\/upload-artifact@v[1-6]\b/);
     expect(workflow).not.toMatch(/actions\/github-script@v[1-7]\b/);
+  });
+
+  it('keeps Firefox AMO publishing on the GA production release path', () => {
+    const workflow = readFirefoxReleaseWorkflow();
+    const packageJson = readPackageJson();
+
+    expect(workflow).toContain('name: Release Firefox AMO');
+    expect(workflow).toContain('workflow_dispatch:');
+    expect(workflow).toContain("tags:\n      - 'v*'");
+    expect(workflow).toContain('permissions:\n  contents: read');
+    expect(workflow).toContain('uses: actions/checkout@v6');
+    expect(workflow).toContain('uses: ./.github/actions/setup-node-deps');
+    expect(workflow).toContain('WEB_EXT_API_KEY: ${{ secrets.WEB_EXT_API_KEY }}');
+    expect(workflow).toContain('WEB_EXT_API_SECRET: ${{ secrets.WEB_EXT_API_SECRET }}');
+    expect(workflow).toContain('FIREFOX_RELEASE_CHANNEL: listed');
+    expect(workflow).toContain('id: release_channel');
+    expect(workflow).toContain('GITHUB_EVENT_PATH');
+    expect(workflow).toContain('FIREFOX_RELEASE_CHANNEL=%s\\n');
+    expect(workflow).toContain('channel=%s\\n');
+    expect(workflow).toContain('${safe_ref//[!A-Za-z0-9._-]/-}');
+    expect(workflow).toContain('safe_ref=%s\\n');
+    expect(workflow).toContain('ZENDIO_GA_MEASUREMENT_ID: ${{ secrets.ZENDIO_GA_MEASUREMENT_ID }}');
+    expect(workflow).toContain('ZENDIO_GA_TRANSPORT_MODE: proxy');
+    expect(workflow).toContain('ZENDIO_GA_PROXY_ENDPOINT: ${{ secrets.ZENDIO_GA_PROXY_ENDPOINT }}');
+    expect(workflow).toContain('npm run analytics:validate:prod:required');
+    expect(workflow).toContain('npm run build:firefox:prod:ga:ci');
+    expect(workflow).toContain('node scripts/package-firefox.mjs "${sign_args[@]}"');
+    expect(workflow).toContain('--approval-timeout 0');
+    expect(workflow).toContain("find build/firefox-source -type f -name '*-source.zip'");
+    expect(workflow).toContain('Expected exactly one Firefox AMO source archive');
+    expect(workflow).toContain('source_archive_path=%s\\n');
+    expect(workflow).toContain('npm run audit:ga:client-secret');
+    expect(workflow).toContain('npm run audit:ga:release-surface -- "${archive_args[@]}"');
+    expect(workflow).toContain('uses: actions/upload-artifact@v7');
+    expect(workflow).toContain(
+      'name: firefox-amo-${{ steps.release_channel.outputs.channel }}-${{ steps.release_channel.outputs.safe_ref }}-${{ github.run_number }}'
+    );
+    expect(workflow).toContain('build/firefox-source/**/*-source.zip');
+    expect(workflow).toContain('if-no-files-found: error');
+    expect(workflow).not.toContain('inputs.channel ||');
+    expect(workflow).not.toContain('github.ref_name }}');
+    expect(workflow).not.toContain('npm run package:firefox\n');
+    expect(workflow).not.toContain('node --env-file=.env.production.local');
+    expect(packageJson).toContain(
+      '"analytics:validate:prod:required": "node scripts/setup-error-analytics.js --require-env --require-zendio-env --require-proxy-transport"'
+    );
+    expect(packageJson).not.toContain('"analytics:validate:prod:required": "node --env-file');
   });
 });
