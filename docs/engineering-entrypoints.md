@@ -187,7 +187,8 @@ chrome-webstore-release`; owner-managed GitHub Environment protection rules must
 enable Required reviewers for that Environment. The job reads
 `ZENDIO_GA_MEASUREMENT_ID`, `ZENDIO_GA_TRANSPORT_MODE`, and
 `ZENDIO_GA_PROXY_ENDPOINT` from Environment Variables, fails closed when any are
-missing, runs `analytics:validate:prod`, `quality`, a production Chrome build,
+missing or when `ZENDIO_GA_TRANSPORT_MODE` is not `proxy`, runs
+`analytics:validate:prod:required`, `quality`, a production Chrome build,
 `package:ci`, archive-level `audit:ga:client-secret` /
 `audit:ga:release-surface`, and only then calls
 `node scripts/publish-chrome-webstore.mjs --publish --zip <zip>`.
@@ -229,8 +230,8 @@ DebugView visibility, or server-side `api_secret` injection. If
 `.env.production.local` is absent, the validator still runs and reports missing
 public values as warnings.
 The Chrome Web Store release workflow adds its own fail-closed shell checks for
-missing protected Environment public GA build config before any production
-package is built.
+missing protected Environment public GA build config and non-`proxy` transport
+before any production package is built.
 `analytics:validate:prod:required` runs the same contract but is the strict CI /
 release automation entry: it does not load `.env.production.local`, requires
 canonical `ZENDIO_GA_MEASUREMENT_ID` / `ZENDIO_GA_TRANSPORT_MODE` /

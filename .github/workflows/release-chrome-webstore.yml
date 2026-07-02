@@ -37,9 +37,13 @@ jobs:
           : "${ZENDIO_GA_MEASUREMENT_ID:?missing GitHub Environment variable ZENDIO_GA_MEASUREMENT_ID}"
           : "${ZENDIO_GA_TRANSPORT_MODE:?missing GitHub Environment variable ZENDIO_GA_TRANSPORT_MODE}"
           : "${ZENDIO_GA_PROXY_ENDPOINT:?missing GitHub Environment variable ZENDIO_GA_PROXY_ENDPOINT}"
+          if [ "$ZENDIO_GA_TRANSPORT_MODE" != "proxy" ]; then
+            printf 'ZENDIO_GA_TRANSPORT_MODE must be proxy for Chrome Web Store release\n' >&2
+            exit 1
+          fi
 
       - name: Validate GA public release config
-        run: npm run analytics:validate:prod
+        run: npm run analytics:validate:prod:required
 
       - name: Run release quality gates
         run: npm run quality

@@ -23,7 +23,8 @@ describe('Chrome Web Store release workflow contract', () => {
     expect(workflow).toContain('ZENDIO_GA_MEASUREMENT_ID: ${{ vars.ZENDIO_GA_MEASUREMENT_ID }}');
     expect(workflow).toContain('ZENDIO_GA_TRANSPORT_MODE: ${{ vars.ZENDIO_GA_TRANSPORT_MODE }}');
     expect(workflow).toContain('ZENDIO_GA_PROXY_ENDPOINT: ${{ vars.ZENDIO_GA_PROXY_ENDPOINT }}');
-    expect(workflow).toContain('npm run analytics:validate:prod');
+    expect(workflow).toContain('ZENDIO_GA_TRANSPORT_MODE must be proxy');
+    expect(workflow).toContain('npm run analytics:validate:prod:required');
     expect(workflow).toContain('node scripts/build.mjs --mode=prod --skip-checks');
   });
 
@@ -57,6 +58,58 @@ describe('Chrome Web Store release workflow contract', () => {
           }
         );
       }).toThrow(/environment-contract[\s\S]*name: chrome-webstore-release/);
+    } finally {
+      rmSync(tempDir, { force: true, recursive: true });
+    }
+  });
+
+  it('fails the contract when ordinary branch push releases are enabled', () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'zendio-chrome-release-workflow-'));
+    const workflowPath = join(tempDir, 'release-chrome-webstore.yml');
+    const workflowWithBranchPush = readChromeReleaseWorkflow().replace(
+      "  push:\n    tags:\n      - 'v*'",
+      "  push:\n    branches:\n      - main\n    tags:\n      - 'v*'"
+    );
+
+    try {
+      writeFileSync(workflowPath, workflowWithBranchPush);
+
+      expect(() => {
+        execFileSync(
+          'node',
+          ['tools/report-chrome-webstore-release-workflow.mjs', '--check', '--workflow', workflowPath],
+          {
+            encoding: 'utf8',
+            stdio: 'pipe'
+          }
+        );
+      }).toThrow(/trigger-contract[\s\S]*branches/);
+    } finally {
+      rmSync(tempDir, { force: true, recursive: true });
+    }
+  });
+
+  it('fails the contract when release validation is downgraded to the local owner check', () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'zendio-chrome-release-workflow-'));
+    const workflowPath = join(tempDir, 'release-chrome-webstore.yml');
+    const workflowWithNonStrictValidation = readChromeReleaseWorkflow().replace(
+      'npm run analytics:validate:prod:required',
+      'npm run analytics:validate:prod'
+    );
+
+    try {
+      writeFileSync(workflowPath, workflowWithNonStrictValidation);
+
+      expect(() => {
+        execFileSync(
+          'node',
+          ['tools/report-chrome-webstore-release-workflow.mjs', '--check', '--workflow', workflowPath],
+          {
+            encoding: 'utf8',
+            stdio: 'pipe'
+          }
+        );
+      }).toThrow(/build-package-audit-contract[\s\S]*analytics:validate:prod:required/);
     } finally {
       rmSync(tempDir, { force: true, recursive: true });
     }

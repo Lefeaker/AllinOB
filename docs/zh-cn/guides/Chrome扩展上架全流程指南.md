@@ -85,7 +85,7 @@
 发布前确认 `chrome-webstore-release` Environment Variables 已配置：
 
 - `ZENDIO_GA_MEASUREMENT_ID`
-- `ZENDIO_GA_TRANSPORT_MODE`（生产发布使用 `proxy`）
+- `ZENDIO_GA_TRANSPORT_MODE`（生产发布必须为 `proxy`）
 - `ZENDIO_GA_PROXY_ENDPOINT`
 
 这些 GA 值是扩展构建所需的 public config；它们不写入源码仓库，但构建出的扩展包会包含这些 public config。不要把 `GA4_API_SECRET`、`ZENDIO_GA_API_SECRET` 或其他 server-only secret 放入该 workflow、任何 GitHub Secrets、Environment Secrets 或扩展构建环境。GA `api_secret` 只能存在于 owner proxy / Cloudflare Worker 等服务端环境。
@@ -95,7 +95,7 @@
 - 手动：GitHub Actions → `Release Chrome Web Store` → Run workflow
 - 标签：推送形如 `v0.2.1` 的 tag
 
-本流程的 release job 绑定 `environment: chrome-webstore-release`；当该 Environment 配置了 Required reviewers 时，tag 或手动触发后会先等待发布 owner 审批，审批后才可读取 Environment Variables / Secrets 并继续执行。流程会先校验 GA public config，执行 `npm run analytics:validate:prod` 与 `npm run quality`，再用同一组 `ZENDIO_GA_*` 变量构建 Chrome production bundle、执行 `npm run package:ci`、对最终 zip 运行 `audit:ga:client-secret` 与带 `--archive` 的 `audit:ga:release-surface`，最后调用 `node scripts/publish-chrome-webstore.mjs --publish --zip <zip>` 上传到 Chrome Web Store 并提交发布请求。首次上架的商店资料、隐私问卷、权限说明仍需先在 Chrome Web Store Developer Dashboard 中完成。
+本流程的 release job 绑定 `environment: chrome-webstore-release`；当该 Environment 配置了 Required reviewers 时，tag 或手动触发后会先等待发布 owner 审批，审批后才可读取 Environment Variables / Secrets 并继续执行。流程会先对缺失 GA public config 或非 `proxy` transport fail closed，执行 `npm run analytics:validate:prod:required` 与 `npm run quality`，再用同一组 `ZENDIO_GA_*` 变量构建 Chrome production bundle、执行 `npm run package:ci`、对最终 zip 运行 `audit:ga:client-secret` 与带 `--archive` 的 `audit:ga:release-surface`，最后调用 `node scripts/publish-chrome-webstore.mjs --publish --zip <zip>` 上传到 Chrome Web Store 并提交发布请求。首次上架的商店资料、隐私问卷、权限说明仍需先在 Chrome Web Store Developer Dashboard 中完成。
 
 ## 阶段 6：发布与上线后维护
 

@@ -61,7 +61,16 @@ export function checkChromeWebstoreReleaseWorkflowContract({
 
   recordCheck('trigger-contract', () => {
     assertIncludes(workflow, 'workflow_dispatch:', 'Chrome Web Store release workflow');
-    assertIncludes(workflow, "      - 'v*'", 'Chrome Web Store release workflow');
+    assertNotMatches(
+      workflow,
+      /^\s+branches(?:-ignore)?:/m,
+      'Chrome Web Store release workflow'
+    );
+    assertIncludes(
+      workflow,
+      "  push:\n    tags:\n      - 'v*'",
+      'Chrome Web Store release workflow'
+    );
   });
 
   recordCheck('permissions-and-concurrency-contract', () => {
@@ -144,6 +153,11 @@ export function checkChromeWebstoreReleaseWorkflowContract({
     );
     assertIncludes(
       workflow,
+      'ZENDIO_GA_TRANSPORT_MODE must be proxy for Chrome Web Store release',
+      'Chrome Web Store release workflow'
+    );
+    assertIncludes(
+      workflow,
       '${ZENDIO_GA_PROXY_ENDPOINT:?missing GitHub Environment variable ZENDIO_GA_PROXY_ENDPOINT}',
       'Chrome Web Store release workflow'
     );
@@ -153,7 +167,16 @@ export function checkChromeWebstoreReleaseWorkflowContract({
   });
 
   recordCheck('build-package-audit-contract', () => {
-    assertIncludes(workflow, 'npm run analytics:validate:prod', 'Chrome Web Store release workflow');
+    assertIncludes(
+      workflow,
+      'npm run analytics:validate:prod:required',
+      'Chrome Web Store release workflow'
+    );
+    assertNotMatches(
+      workflow,
+      /^\s*run:\s*npm run analytics:validate:prod\s*$/m,
+      'Chrome Web Store release workflow'
+    );
     assertIncludes(workflow, 'npm run quality', 'Chrome Web Store release workflow');
     assertIncludes(
       workflow,
@@ -169,7 +192,7 @@ export function checkChromeWebstoreReleaseWorkflowContract({
     );
     assertOrdered(
       workflow,
-      'npm run analytics:validate:prod',
+      'npm run analytics:validate:prod:required',
       'node scripts/build.mjs --mode=prod --skip-checks',
       'Chrome Web Store release workflow'
     );
