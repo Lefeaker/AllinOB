@@ -9,6 +9,10 @@ import {
   createReleaseArtifactBaseName,
   createReleaseArtifactFileName
 } from './utils/releaseArtifactNames.mjs';
+import {
+  auditFirefoxAmoSourceArchive,
+  createFirefoxAmoSourceArchive
+} from './utils/firefoxAmoSourceArchive.mjs';
 import { auditReleaseArchive } from '../tools/audit-release-archive.mjs';
 
 const args = process.argv.slice(2);
@@ -189,6 +193,7 @@ export async function runSigning(
     apiSecret,
     channel,
     extensionId,
+    uploadSourceCodePath,
     timeout,
     approvalTimeout
   },
@@ -227,6 +232,9 @@ export async function runSigning(
     channel: normalizedChannel,
     id: extensionId
   };
+  if (uploadSourceCodePath) {
+    signOptions.uploadSourceCode = uploadSourceCodePath;
+  }
   if (timeout !== undefined) {
     signOptions.timeout = timeout;
   }
@@ -288,6 +296,42 @@ export async function signAndAuditFirefoxPackage(signingOptions, dependencies = 
     await auditReleaseArchiveImpl(result.signedPath);
   }
   return result;
+}
+
+export async function resolveFirefoxAmoSourceArchiveForSigning(options, dependencies = {}) {
+  const {
+    artifactBaseName,
+    releaseXpiName = `${artifactBaseName}.xpi`,
+    version,
+    uploadSourceCodePath,
+    sourceArchiveOutputDir = 'build/firefox-source'
+  } = options;
+  const {
+    auditFirefoxAmoSourceArchiveImpl = auditFirefoxAmoSourceArchive,
+    createFirefoxAmoSourceArchiveImpl = createFirefoxAmoSourceArchive,
+    logger = console,
+    repoRoot = process.cwd(),
+    resolvePathImpl = resolve
+  } = dependencies;
+
+  if (uploadSourceCodePath) {
+    const resolvedPath = resolvePathImpl(uploadSourceCodePath);
+    await auditFirefoxAmoSourceArchiveImpl(resolvedPath);
+    logger.log(`🧾 Firefox AMO source archive: ${resolvedPath}`);
+    return resolvedPath;
+  }
+
+  const sourceArchive = await createFirefoxAmoSourceArchiveImpl(
+    {
+      repoRoot,
+      outputDir: sourceArchiveOutputDir,
+      artifactBaseName,
+      releaseXpiName,
+      version
+    },
+    { logger }
+  );
+  return sourceArchive.archivePath;
 }
 
 export async function prepareFirefoxReleasePackage({ distDir }, dependencies = {}) {
@@ -370,12 +414,24 @@ export async function packageFirefoxExtension() {
   const explicitApprovalTimeout = getOptionalNumberFlagValue('--approval-timeout');
   const approvalTimeout = explicitApprovalTimeout ?? (channel === 'listed' ? 0 : undefined);
   const artifactsDir = getFlagValue('--artifacts-dir', { defaultValue: 'build/firefox-artifacts' });
+  const uploadSourceCodePath = getFlagValue('--upload-source-code', { defaultValue: undefined });
+  const sourceArchiveOutputDir = getFlagValue('--source-archive-dir', {
+    defaultValue: 'build/firefox-source'
+  });
 
   if (!apiKey || !apiSecret) {
     console.error('❌ 签名模式需要提供 WEB_EXT_API_KEY 和 WEB_EXT_API_SECRET。');
     console.error('   可以通过环境变量或 --api-key/--api-secret 参数传入。');
     process.exit(1);
   }
+
+  const resolvedUploadSourceCodePath = await resolveFirefoxAmoSourceArchiveForSigning({
+    artifactBaseName,
+    releaseXpiName: xpiName,
+    version: manifest.version,
+    uploadSourceCodePath,
+    sourceArchiveOutputDir
+  });
 
   const signingResult = await signAndAuditFirefoxPackage({
     distDir,
@@ -385,6 +441,7 @@ export async function packageFirefoxExtension() {
     apiSecret,
     channel,
     extensionId: manifest?.browser_specific_settings?.gecko?.id,
+    uploadSourceCodePath: resolvedUploadSourceCodePath,
     timeout,
     approvalTimeout
   });

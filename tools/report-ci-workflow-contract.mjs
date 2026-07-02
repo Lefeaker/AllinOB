@@ -244,21 +244,13 @@ export function checkCiWorkflowContract({
       "printf 'FIREFOX_RELEASE_CHANNEL=%s\\n'",
       'Firefox release workflow'
     );
-    assertIncludes(
-      firefoxReleaseWorkflow,
-      "printf 'channel=%s\\n'",
-      'Firefox release workflow'
-    );
+    assertIncludes(firefoxReleaseWorkflow, "printf 'channel=%s\\n'", 'Firefox release workflow');
     assertIncludes(
       firefoxReleaseWorkflow,
       '${safe_ref//[!A-Za-z0-9._-]/-}',
       'Firefox release workflow'
     );
-    assertIncludes(
-      firefoxReleaseWorkflow,
-      "printf 'safe_ref=%s\\n'",
-      'Firefox release workflow'
-    );
+    assertIncludes(firefoxReleaseWorkflow, "printf 'safe_ref=%s\\n'", 'Firefox release workflow');
     assertIncludes(
       firefoxReleaseWorkflow,
       'ZENDIO_GA_MEASUREMENT_ID: ${{ secrets.ZENDIO_GA_MEASUREMENT_ID }}',
@@ -302,6 +294,17 @@ export function checkCiWorkflowContract({
     assertIncludes(firefoxReleaseWorkflow, '--approval-timeout 0', 'Firefox release workflow');
     assertIncludes(
       firefoxReleaseWorkflow,
+      "find build/firefox-source -type f -name '*-source.zip'",
+      'Firefox release workflow'
+    );
+    assertIncludes(
+      firefoxReleaseWorkflow,
+      'Expected exactly one Firefox AMO source archive',
+      'Firefox release workflow'
+    );
+    assertIncludes(firefoxReleaseWorkflow, 'source_archive_path=%s\\n', 'Firefox release workflow');
+    assertIncludes(
+      firefoxReleaseWorkflow,
       'npm run audit:ga:client-secret',
       'Firefox release workflow'
     );
@@ -318,6 +321,11 @@ export function checkCiWorkflowContract({
     assertIncludes(
       firefoxReleaseWorkflow,
       'name: firefox-amo-${{ steps.release_channel.outputs.channel }}-${{ steps.release_channel.outputs.safe_ref }}-${{ github.run_number }}',
+      'Firefox release workflow'
+    );
+    assertIncludes(
+      firefoxReleaseWorkflow,
+      'build/firefox-source/**/*-source.zip',
       'Firefox release workflow'
     );
     assertIncludes(firefoxReleaseWorkflow, 'if-no-files-found: error', 'Firefox release workflow');

@@ -103,7 +103,15 @@ jobs:
             exit 1
           fi
 
+          mapfile -t source_archive_files < <(find build/firefox-source -type f -name '*-source.zip' -print | sort)
+          if [ "${#source_archive_files[@]}" -ne 1 ]; then
+            printf 'Expected exactly one Firefox AMO source archive, found %s\n' "${#source_archive_files[@]}" >&2
+            printf '%s\n' "${source_archive_files[@]}" >&2
+            exit 1
+          fi
+
           printf 'unsigned_xpi_path=%s\n' "${unsigned_xpi_files[0]}" >> "$GITHUB_OUTPUT"
+          printf 'source_archive_path=%s\n' "${source_archive_files[0]}" >> "$GITHUB_OUTPUT"
           if [ "${#signed_xpi_files[@]}" -eq 1 ]; then
             printf 'signed_xpi_path=%s\n' "${signed_xpi_files[0]}" >> "$GITHUB_OUTPUT"
           else
@@ -127,4 +135,5 @@ jobs:
           path: |
             ./*.xpi
             build/firefox-artifacts/**/*.xpi
+            build/firefox-source/**/*-source.zip
           if-no-files-found: error

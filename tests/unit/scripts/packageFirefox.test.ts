@@ -7,6 +7,7 @@ import {
   normalizeFirefoxSigningChannel,
   prepareFirefoxReleasePackage,
   requiresDownloadedSignedArtifact,
+  resolveFirefoxAmoSourceArchiveForSigning,
   signAndAuditFirefoxPackage
 } from '../../../scripts/package-firefox.mjs';
 
@@ -192,6 +193,7 @@ describe('Firefox package signing audit', () => {
     const signingResult = await signAndAuditFirefoxPackage(
       {
         ...createSigningOptions(root),
+        uploadSourceCodePath: join(root, 'source', 'amo-source.zip'),
         timeout: 15000,
         approvalTimeout: 0
       },
@@ -215,11 +217,75 @@ describe('Firefox package signing audit', () => {
         apiSecret: 'api-secret',
         channel: 'listed',
         id: 'extension@example.test',
+        uploadSourceCode: join(root, 'source', 'amo-source.zip'),
         timeout: 15000,
         approvalTimeout: 0
       }),
       { shouldExitProgram: false }
     );
+  });
+
+  it('generates a Firefox AMO source archive for signing when no explicit archive is provided', async () => {
+    const root = await createTempRoot();
+    const logger = { log: vi.fn(), warn: vi.fn() };
+    const createFirefoxAmoSourceArchiveImpl = vi.fn().mockResolvedValue({
+      archivePath: join(root, 'build', 'firefox-source', `${RELEASE_ARTIFACT_BASE_NAME}-source.zip`)
+    });
+
+    const sourceArchivePath = await resolveFirefoxAmoSourceArchiveForSigning(
+      {
+        artifactBaseName: RELEASE_ARTIFACT_BASE_NAME,
+        releaseXpiName: `${RELEASE_ARTIFACT_BASE_NAME}.xpi`,
+        version: '0.2.0',
+        sourceArchiveOutputDir: 'build/firefox-source'
+      },
+      {
+        createFirefoxAmoSourceArchiveImpl,
+        logger,
+        repoRoot: root
+      }
+    );
+
+    expect(sourceArchivePath).toBe(
+      join(root, 'build', 'firefox-source', `${RELEASE_ARTIFACT_BASE_NAME}-source.zip`)
+    );
+    expect(createFirefoxAmoSourceArchiveImpl).toHaveBeenCalledWith(
+      {
+        repoRoot: root,
+        outputDir: 'build/firefox-source',
+        artifactBaseName: RELEASE_ARTIFACT_BASE_NAME,
+        releaseXpiName: `${RELEASE_ARTIFACT_BASE_NAME}.xpi`,
+        version: '0.2.0'
+      },
+      expect.objectContaining({
+        logger
+      })
+    );
+  });
+
+  it('audits an explicit Firefox AMO source archive path before signing uses it', async () => {
+    const root = await createTempRoot();
+    const auditFirefoxAmoSourceArchiveImpl = vi.fn().mockResolvedValue({ ok: true });
+    const createFirefoxAmoSourceArchiveImpl = vi.fn();
+
+    const sourceArchivePath = await resolveFirefoxAmoSourceArchiveForSigning(
+      {
+        artifactBaseName: RELEASE_ARTIFACT_BASE_NAME,
+        releaseXpiName: `${RELEASE_ARTIFACT_BASE_NAME}.xpi`,
+        version: '0.2.0',
+        uploadSourceCodePath: 'review/source.zip'
+      },
+      {
+        auditFirefoxAmoSourceArchiveImpl,
+        createFirefoxAmoSourceArchiveImpl,
+        logger: { log: vi.fn(), warn: vi.fn() },
+        resolvePathImpl: (targetPath: string) => join(root, targetPath)
+      }
+    );
+
+    expect(sourceArchivePath).toBe(join(root, 'review/source.zip'));
+    expect(auditFirefoxAmoSourceArchiveImpl).toHaveBeenCalledWith(join(root, 'review/source.zip'));
+    expect(createFirefoxAmoSourceArchiveImpl).not.toHaveBeenCalled();
   });
 
   it('detects a signed XPI when web-ext overwrites an existing artifact name', async () => {

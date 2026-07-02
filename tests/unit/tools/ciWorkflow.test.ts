@@ -96,12 +96,16 @@ describe('CI workflow wiring', () => {
     expect(workflow).toContain('npm run build:firefox:prod:ga:ci');
     expect(workflow).toContain('node scripts/package-firefox.mjs "${sign_args[@]}"');
     expect(workflow).toContain('--approval-timeout 0');
+    expect(workflow).toContain("find build/firefox-source -type f -name '*-source.zip'");
+    expect(workflow).toContain('Expected exactly one Firefox AMO source archive');
+    expect(workflow).toContain('source_archive_path=%s\\n');
     expect(workflow).toContain('npm run audit:ga:client-secret');
     expect(workflow).toContain('npm run audit:ga:release-surface -- "${archive_args[@]}"');
     expect(workflow).toContain('uses: actions/upload-artifact@v7');
     expect(workflow).toContain(
       'name: firefox-amo-${{ steps.release_channel.outputs.channel }}-${{ steps.release_channel.outputs.safe_ref }}-${{ github.run_number }}'
     );
+    expect(workflow).toContain('build/firefox-source/**/*-source.zip');
     expect(workflow).toContain('if-no-files-found: error');
     expect(workflow).not.toContain('inputs.channel ||');
     expect(workflow).not.toContain('github.ref_name }}');
