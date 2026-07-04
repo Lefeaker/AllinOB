@@ -4,6 +4,7 @@ export type FirefoxSigningOptions = {
   artifactBaseName: string;
   apiKey: string;
   apiSecret: string;
+  amoBaseUrl?: string;
   channel: string;
   extensionId?: string;
   uploadSourceCodePath?: string;
