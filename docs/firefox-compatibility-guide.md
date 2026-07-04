@@ -102,16 +102,27 @@ npm run package:firefox
 ```bash
 # 使用 AMO API 进行签名（需要先配置凭据）
 WEB_EXT_API_KEY=xxx WEB_EXT_API_SECRET=yyy npm run package:firefox:sign
+
+# 使用本机 GA public config 构建 Firefox production 包，再提交 AMO
+WEB_EXT_API_KEY=xxx WEB_EXT_API_SECRET=yyy npm run package:firefox:prod:ga -- --sign --channel listed
 ```
 
 - 需要在 [Mozilla Add-on Developer Hub](https://addons.mozilla.org/) 生成 API Key 与 Secret。
 - 签名产物默认输出到 `build/firefox-artifacts/`，同时复制一份形如 `<扩展名>-v<版本号>-signed.xpi` 到仓库根目录。
 - 支持可选参数：
   - `--channel listed|unlisted`：默认 `listed`，用于选择发布渠道。
+    - `listed`：提交到 AMO 公开列表审核；脚本默认传递 `approvalTimeout=0`，避免 CI 长时间等待审核完成。审核通过后由 AMO 侧提供签名产物。
+    - `unlisted`：用于自分发签名；脚本要求 Mozilla 返回 signed XPI，并对最终 signed XPI 重新执行 release archive audit。
   - `--artifacts-dir <path>`：自定义签名产物目录。
+  - `--source-archive-dir <path>`：自定义 AMO source archive 输出目录；默认 `build/firefox-source`。
+  - `--upload-source-code <path>`：复用并上传已有 AMO source archive；脚本会先审计该 archive，再传给 `web-ext.cmd.sign` 的 `uploadSourceCode`。
+  - `--timeout <ms>`：覆盖 web-ext 等待验证的毫秒值。
+  - `--approval-timeout <ms>`：覆盖 web-ext 等待审核的毫秒值；`listed` 自动发布默认使用 `0`。
   - `--api-key` / `--api-secret`：覆盖环境变量传入凭据。
+- 签名模式会默认生成 `<扩展名>-v<版本号>-source.zip` AMO source archive，并随 `web-ext` signing submission 上传。源码包由白名单 staging 生成，包含 `src/`、`public/`、`scripts/`、`tools/`、锁文件、构建配置和 `AMO_SOURCE_REVIEW.md`，并拒绝 `.env*`、`node_modules/`、`build/`、`.worktrees/`、XPI/ZIP 以及私钥类文件进入 archive。
+- `AMO_SOURCE_REVIEW.md` 记录审核员复现未签名 XPI 的命令：`npm ci`、设置公开的 `ZENDIO_GA_MEASUREMENT_ID` / `ZENDIO_GA_TRANSPORT_MODE=proxy` / `ZENDIO_GA_PROXY_ENDPOINT`、运行 `node scripts/setup-error-analytics.js --require-env --require-zendio-env --require-proxy-transport`、`node scripts/build.mjs --mode=prod --skip-checks --firefox` 与 `node scripts/package-firefox.mjs --dist-dir build/dist`。AMO API credentials、GA client secret、本机 `.env.production.local` 不应进入源码包，也不需要提供给审核员。
 - 通过 `npm run package:firefox:sign -- --channel unlisted` 可传递附加参数。
-- CI 中可直接运行 `node scripts/package-firefox.mjs --sign`，结合密钥管理工具注入凭据。
+- GitHub 自动发布入口为 `.github/workflows/release-firefox-amo.yml`。该 workflow 支持 tag `v*` 触发与手动触发，默认 `listed`，手动触发可选择 `unlisted`；它会强制校验 canonical `ZENDIO_GA_MEASUREMENT_ID`、`ZENDIO_GA_TRANSPORT_MODE=proxy`、`ZENDIO_GA_PROXY_ENDPOINT`、`WEB_EXT_API_KEY`、`WEB_EXT_API_SECRET`，运行 Firefox GA production build，提交 AMO source archive + XPI，并对生成的 XPI 执行 GA release-surface archive audit。GitHub artifact 同时保留 XPI 和 `build/firefox-source/**/*-source.zip`，方便审核追溯或手动补交源码。
 
 ## 🎨 样式适配
 

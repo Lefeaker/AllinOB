@@ -126,6 +126,7 @@ describe('local command parallelization contract', () => {
 
     expect(ids).toEqual([
       'audit-build-graph-report',
+      'audit-chrome-webstore-release-check',
       'audit-ci-workflow-check',
       'audit-compatibility-duplicates-check',
       'audit-components-report',

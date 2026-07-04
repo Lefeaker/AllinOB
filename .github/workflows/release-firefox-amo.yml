@@ -1,0 +1,139 @@
+name: Release Firefox AMO
+
+on:
+  workflow_dispatch:
+    inputs:
+      channel:
+        description: AMO release channel. listed submits for AMO review; unlisted downloads a signed XPI for self-distribution.
+        required: true
+        default: listed
+        type: choice
+        options:
+          - listed
+          - unlisted
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: read
+
+jobs:
+  release:
+    name: Build and submit Firefox AMO package
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      FIREFOX_RELEASE_CHANNEL: listed
+      ZENDIO_GA_MEASUREMENT_ID: ${{ secrets.ZENDIO_GA_MEASUREMENT_ID }}
+      ZENDIO_GA_TRANSPORT_MODE: proxy
+      ZENDIO_GA_PROXY_ENDPOINT: ${{ secrets.ZENDIO_GA_PROXY_ENDPOINT }}
+      WEB_EXT_API_KEY: ${{ secrets.WEB_EXT_API_KEY }}
+      WEB_EXT_API_SECRET: ${{ secrets.WEB_EXT_API_SECRET }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Setup Node dependencies
+        uses: ./.github/actions/setup-node-deps
+
+      - name: Resolve release channel
+        id: release_channel
+        shell: bash
+        run: |
+          release_channel="listed"
+          if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then
+            release_channel="$(node -e "const fs = require('node:fs'); const event = JSON.parse(fs.readFileSync(process.env.GITHUB_EVENT_PATH, 'utf8')); process.stdout.write(event.inputs?.channel || 'listed');")"
+          fi
+
+          case "$release_channel" in
+            listed|unlisted)
+              printf 'Firefox release channel: %s\n' "$release_channel"
+              printf 'FIREFOX_RELEASE_CHANNEL=%s\n' "$release_channel" >> "$GITHUB_ENV"
+              printf 'channel=%s\n' "$release_channel" >> "$GITHUB_OUTPUT"
+              safe_ref="${GITHUB_REF_NAME:-unknown-ref}"
+              safe_ref="${safe_ref//[!A-Za-z0-9._-]/-}"
+              if [ -z "$safe_ref" ]; then
+                safe_ref="ref"
+              fi
+              printf 'safe_ref=%s\n' "$safe_ref" >> "$GITHUB_OUTPUT"
+              ;;
+            *)
+              printf 'Unsupported Firefox release channel: %s\n' "$release_channel" >&2
+              exit 1
+              ;;
+          esac
+
+      - name: Validate required GA public config
+        run: npm run analytics:validate:prod:required
+
+      - name: Build Firefox production bundle with GA config
+        run: npm run build:firefox:prod:ga:ci
+
+      - name: Submit Firefox package to AMO
+        shell: bash
+        run: |
+          sign_args=(--sign --channel "$FIREFOX_RELEASE_CHANNEL")
+          if [ "$FIREFOX_RELEASE_CHANNEL" = "listed" ]; then
+            sign_args+=(--approval-timeout 0)
+          fi
+          node scripts/package-firefox.mjs "${sign_args[@]}"
+
+      - name: Resolve Firefox release artifacts
+        id: artifacts
+        shell: bash
+        run: |
+          mapfile -t unsigned_xpi_files < <(find . -maxdepth 1 -type f -name '*.xpi' ! -name '*-signed.xpi' -print | sort)
+          if [ "${#unsigned_xpi_files[@]}" -ne 1 ]; then
+            printf 'Expected exactly one unsigned root XPI package, found %s\n' "${#unsigned_xpi_files[@]}" >&2
+            printf '%s\n' "${unsigned_xpi_files[@]}" >&2
+            exit 1
+          fi
+
+          mapfile -t signed_xpi_files < <(find . -maxdepth 1 -type f -name '*-signed.xpi' -print | sort)
+          if [ "$FIREFOX_RELEASE_CHANNEL" = "unlisted" ] && [ "${#signed_xpi_files[@]}" -ne 1 ]; then
+            printf 'Expected exactly one signed root XPI package for unlisted release, found %s\n' "${#signed_xpi_files[@]}" >&2
+            printf '%s\n' "${signed_xpi_files[@]}" >&2
+            exit 1
+          fi
+          if [ "$FIREFOX_RELEASE_CHANNEL" = "listed" ] && [ "${#signed_xpi_files[@]}" -gt 1 ]; then
+            printf 'Expected at most one signed root XPI package for listed release, found %s\n' "${#signed_xpi_files[@]}" >&2
+            printf '%s\n' "${signed_xpi_files[@]}" >&2
+            exit 1
+          fi
+
+          mapfile -t source_archive_files < <(find build/firefox-source -type f -name '*-source.zip' -print | sort)
+          if [ "${#source_archive_files[@]}" -ne 1 ]; then
+            printf 'Expected exactly one Firefox AMO source archive, found %s\n' "${#source_archive_files[@]}" >&2
+            printf '%s\n' "${source_archive_files[@]}" >&2
+            exit 1
+          fi
+
+          printf 'unsigned_xpi_path=%s\n' "${unsigned_xpi_files[0]}" >> "$GITHUB_OUTPUT"
+          printf 'source_archive_path=%s\n' "${source_archive_files[0]}" >> "$GITHUB_OUTPUT"
+          if [ "${#signed_xpi_files[@]}" -eq 1 ]; then
+            printf 'signed_xpi_path=%s\n' "${signed_xpi_files[0]}" >> "$GITHUB_OUTPUT"
+          else
+            printf 'signed_xpi_path=\n' >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Audit GA release surface
+        shell: bash
+        run: |
+          archive_args=(--archive "${{ steps.artifacts.outputs.unsigned_xpi_path }}")
+          if [ -n "${{ steps.artifacts.outputs.signed_xpi_path }}" ]; then
+            archive_args+=(--archive "${{ steps.artifacts.outputs.signed_xpi_path }}")
+          fi
+          npm run audit:ga:client-secret
+          npm run audit:ga:release-surface -- "${archive_args[@]}"
+
+      - name: Upload Firefox release artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: firefox-amo-${{ steps.release_channel.outputs.channel }}-${{ steps.release_channel.outputs.safe_ref }}-${{ github.run_number }}
+          path: |
+            ./*.xpi
+            build/firefox-artifacts/**/*.xpi
+            build/firefox-source/**/*-source.zip
+          if-no-files-found: error

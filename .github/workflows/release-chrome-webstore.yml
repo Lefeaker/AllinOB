@@ -9,26 +9,47 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   release:
     name: Build and publish Chrome Web Store package
     runs-on: ubuntu-latest
+    environment:
+      name: chrome-webstore-release
+    env:
+      ZENDIO_GA_MEASUREMENT_ID: ${{ vars.ZENDIO_GA_MEASUREMENT_ID }}
+      ZENDIO_GA_TRANSPORT_MODE: ${{ vars.ZENDIO_GA_TRANSPORT_MODE }}
+      ZENDIO_GA_PROXY_ENDPOINT: ${{ vars.ZENDIO_GA_PROXY_ENDPOINT }}
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version-file: '.nvmrc'
-          cache: 'npm'
+      - name: Setup Node dependencies
+        uses: ./.github/actions/setup-node-deps
 
-      - name: Install dependencies
-        run: npm ci
+      - name: Require GA public release config
+        shell: bash
+        run: |
+          : "${ZENDIO_GA_MEASUREMENT_ID:?missing GitHub Environment variable ZENDIO_GA_MEASUREMENT_ID}"
+          : "${ZENDIO_GA_TRANSPORT_MODE:?missing GitHub Environment variable ZENDIO_GA_TRANSPORT_MODE}"
+          : "${ZENDIO_GA_PROXY_ENDPOINT:?missing GitHub Environment variable ZENDIO_GA_PROXY_ENDPOINT}"
+          if [ "$ZENDIO_GA_TRANSPORT_MODE" != "proxy" ]; then
+            printf 'ZENDIO_GA_TRANSPORT_MODE must be proxy for Chrome Web Store release\n' >&2
+            exit 1
+          fi
 
-      - name: Build production bundle
-        run: npm run build
+      - name: Validate GA public release config
+        run: npm run analytics:validate:prod:required
+
+      - name: Run release quality gates
+        run: npm run quality
+
+      - name: Build Chrome GA production bundle
+        run: node scripts/build.mjs --mode=prod --skip-checks
 
       - name: Package Chrome extension
         run: npm run package:ci
@@ -45,6 +66,18 @@ jobs:
           fi
           printf 'zip_path=%s\n' "${zip_files[0]}" >> "$GITHUB_OUTPUT"
 
+      - name: Audit Chrome GA release package
+        run: |
+          npm run audit:ga:client-secret
+          npm run audit:ga:release-surface -- --archive "${{ steps.package.outputs.zip_path }}"
+
+      - name: Upload Chrome Web Store package artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: chrome-webstore-package
+          path: ${{ steps.package.outputs.zip_path }}
+          if-no-files-found: error
+
       - name: Publish to Chrome Web Store
         env:
           CWS_CLIENT_ID: ${{ secrets.CWS_CLIENT_ID }}
@@ -52,4 +85,4 @@ jobs:
           CWS_REFRESH_TOKEN: ${{ secrets.CWS_REFRESH_TOKEN }}
           CWS_EXTENSION_ID: ${{ secrets.CWS_EXTENSION_ID }}
           CWS_PUBLISHER_ID: ${{ secrets.CWS_PUBLISHER_ID }}
-        run: node scripts/publish-chrome-webstore.mjs --zip "${{ steps.package.outputs.zip_path }}"
+        run: node scripts/publish-chrome-webstore.mjs --publish --zip "${{ steps.package.outputs.zip_path }}"
