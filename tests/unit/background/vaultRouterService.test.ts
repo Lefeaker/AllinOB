@@ -49,7 +49,7 @@ describe('vaultRouterService', () => {
     expect(result.context.domain).toBe('example.com');
   });
 
-  it('selects configured vault when router rule matches domain', () => {
+  it('selects configured vault without inheriting legacy rootDir', () => {
     const options = createBaseOptions();
 
     const routerConfig: VaultRouterConfig = {
@@ -94,7 +94,8 @@ describe('vaultRouterService', () => {
     );
     expect(result.restConfig.vault).toBe('Articles');
     expect(result.restConfig.apiKey).toBe('vault-key');
-    expect(result.restConfig.rootDir).toBe('root');
+    expect(result.restConfig.rootDir).toBeUndefined();
+    expect(result.restConfig).not.toHaveProperty('rootDir');
   });
 
   it('carries selected vault local folder metadata into the write config', () => {

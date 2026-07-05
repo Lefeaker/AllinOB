@@ -11,6 +11,7 @@ export interface RestOptions {
   httpUrl?: string;
   vault: string;
   apiKey: string;
+  /** Legacy persisted compatibility only; runtime write routing does not use this field. */
   rootDir?: string;
   localFolderId?: string | undefined;
   localFolderName?: string | undefined;
