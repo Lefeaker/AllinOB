@@ -10,6 +10,7 @@ import type { UserVisibleMessageDescriptor } from '../../shared/i18n/userVisible
 import type { LocalVaultPermissionState } from '../../platform/interfaces/fileSystemAccess';
 import { trackUsageEvent } from './analyticsEvents';
 import type { DurationBucket, StorageTarget } from '../../shared/types/analytics';
+import { normalizeLocalFolderWritePath } from '../../shared/paths/vaultWritePath';
 
 export type VaultStorageTarget = 'local-folder' | 'rest-api';
 export type LocalVaultFallbackReason =
@@ -179,9 +180,12 @@ function createLocalWriteSession(
   ): Promise<void> {
     const startedAt = Date.now();
     try {
+      const normalizedFilePath = normalizeLocalFolderWritePath(filePath, {
+        selectedVaultName: rest.vault
+      }).path;
       await platform.fileSystemAccess.writeFile({
         folderId: localFolderId,
-        filePath,
+        filePath: normalizedFilePath,
         content: normalizeLocalContent(content),
         contentType
       });
@@ -235,26 +239,29 @@ async function writeVaultFile(
   contentType: string
 ): Promise<void> {
   const startedAt = Date.now();
+  const targetFilePath = target.fallbackReason
+    ? normalizeLocalFolderWritePath(filePath, { selectedVaultName: connection.vault }).path
+    : filePath;
   try {
-    await restClient.writeFile(connection, filePath, content, { contentType });
+    await restClient.writeFile(connection, targetFilePath, content, { contentType });
     trackVaultWriteCompleted(target, startedAt);
   } catch (error) {
     trackVaultWriteFailed(target, 'connection');
     await handleError(
       restErrors.requestFailed(
-        `Failed to write file to vault: ${filePath}`,
+        `Failed to write file to vault: ${targetFilePath}`,
         {
           endpoint: connection.baseUrl,
           vault: connection.vault,
           method: 'PUT',
-          filePath
+          filePath: targetFilePath
         },
         { cause: error }
       ),
       { suppressNotifications: true }
     );
     if (target.fallbackReason) {
-      throw createLocalFallbackRestFailedError(connection, target, filePath, error);
+      throw createLocalFallbackRestFailedError(connection, target, targetFilePath, error);
     }
     throw error;
   }

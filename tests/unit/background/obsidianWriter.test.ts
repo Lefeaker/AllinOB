@@ -231,7 +231,7 @@ describe('obsidianWriter', () => {
     ).toThrow('Invalid attachment data URL.');
   });
 
-  it('creates a local write session and writes every file to the same local folder', async () => {
+  it('creates a local write session and writes every file to the same target-root path policy', async () => {
     const writeFileMock = vi.fn(() => Promise.resolve(undefined));
     const queryPermissionMock = vi.fn(() => Promise.resolve('granted'));
     const ensurePermissionMock = vi.fn(() => Promise.resolve('granted'));
@@ -256,8 +256,12 @@ describe('obsidianWriter', () => {
     } as never);
     const attachmentBlob = new Blob(['png-data'], { type: 'image/png' });
 
-    await session.writeAttachment('Articles/assets/test/image.png', attachmentBlob, 'image/png');
-    await session.writeMarkdown('Articles/test.md', '# Hello');
+    await session.writeAttachment(
+      'Main/Articles/assets/test/image.png',
+      attachmentBlob,
+      'image/png'
+    );
+    await session.writeMarkdown('Main/Articles/test.md', '# Hello');
 
     expect(session.target).toEqual({
       storageTarget: 'local-folder',
@@ -297,7 +301,48 @@ describe('obsidianWriter', () => {
     );
   });
 
-  it('falls back to REST for the whole session when local preflight is denied', async () => {
+  it('preserves case-mismatched and repeated vault-like prefixes for local sessions', async () => {
+    const writeFileMock = vi.fn(() => Promise.resolve(undefined));
+    const queryPermissionMock = vi.fn(() => Promise.resolve('granted'));
+    const writeLocalFileMock = vi.fn(() => Promise.resolve(undefined));
+    getServiceMock.mockReturnValue({
+      restClient: { writeFile: writeFileMock },
+      fileSystemAccess: {
+        queryPermission: queryPermissionMock,
+        ensurePermission: vi.fn(() => Promise.resolve('granted')),
+        writeFile: writeLocalFileMock
+      }
+    });
+
+    const { createVaultWriteSession } =
+      await import('../../../src/background/services/obsidianWriter');
+    const session = await createVaultWriteSession({
+      baseUrl: 'https://vault.example',
+      vault: 'Main',
+      apiKey: 'secret',
+      localFolderId: 'folder-main',
+      localFolderName: 'Main'
+    } as never);
+
+    await session.writeMarkdown('main/Articles/test.md', '# case mismatch');
+    await session.writeMarkdown('Main/Main/Articles/test.md', '# repeated');
+
+    expect(writeLocalFileMock).toHaveBeenNthCalledWith(1, {
+      folderId: 'folder-main',
+      filePath: 'main/Articles/test.md',
+      content: '# case mismatch',
+      contentType: 'text/markdown; charset=utf-8'
+    });
+    expect(writeLocalFileMock).toHaveBeenNthCalledWith(2, {
+      folderId: 'folder-main',
+      filePath: 'Main/Articles/test.md',
+      content: '# repeated',
+      contentType: 'text/markdown; charset=utf-8'
+    });
+    expect(writeFileMock).not.toHaveBeenCalled();
+  });
+
+  it('falls back to REST with the same target-root path when local preflight is denied', async () => {
     const writeFileMock = vi.fn(() => Promise.resolve(undefined));
     const queryPermissionMock = vi.fn(() => Promise.resolve('denied'));
     const ensurePermissionMock = vi.fn(() => Promise.resolve('denied'));
@@ -323,8 +368,12 @@ describe('obsidianWriter', () => {
     } as never);
     const attachmentBlob = new Blob(['png-data'], { type: 'image/png' });
 
-    await session.writeAttachment('Articles/assets/test/image.png', attachmentBlob, 'image/png');
-    await session.writeMarkdown('Articles/test.md', '# Hello');
+    await session.writeAttachment(
+      'Main/Articles/assets/test/image.png',
+      attachmentBlob,
+      'image/png'
+    );
+    await session.writeMarkdown('Main/Articles/test.md', '# Hello');
 
     expect(session.target).toEqual({
       storageTarget: 'rest-api',

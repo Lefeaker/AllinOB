@@ -60,10 +60,39 @@ describe('vault write path contract', () => {
     });
   });
 
-  it('preserves matching first segments for Local Folder writes in P01', () => {
+  it('preserves matching first segments for Local Folder writes without a selected root policy', () => {
     expect(normalizeLocalFolderWritePath('Vault/Inbox/file.md')).toEqual({
       path: 'Vault/Inbox/file.md',
       strippedVaultPrefix: false
+    });
+  });
+
+  it('strips one exact matching vault prefix for Local Folder selected-root writes', () => {
+    expect(
+      normalizeLocalFolderWritePath('Vault/Inbox/file.md', { selectedVaultName: 'Vault' })
+    ).toEqual({
+      path: 'Inbox/file.md',
+      strippedVaultPrefix: true
+    });
+  });
+
+  it('preserves case-mismatched local-folder selected-root prefixes', () => {
+    expect(
+      normalizeLocalFolderWritePath('vault/Inbox/file.md', { selectedVaultName: 'Vault' })
+    ).toEqual({
+      path: 'vault/Inbox/file.md',
+      strippedVaultPrefix: false
+    });
+  });
+
+  it('strips at most one matching vault prefix for Local Folder selected-root writes', () => {
+    expect(
+      normalizeLocalFolderWritePath('Vault/Vault/Inbox/file.md', {
+        selectedVaultName: 'Vault'
+      })
+    ).toEqual({
+      path: 'Vault/Inbox/file.md',
+      strippedVaultPrefix: true
     });
   });
 

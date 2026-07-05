@@ -11,6 +11,10 @@ export interface NormalizedVaultWritePath {
   strippedVaultPrefix: boolean;
 }
 
+export interface NormalizeLocalFolderWritePathOptions {
+  selectedVaultName?: string;
+}
+
 export function normalizeVaultWritePath(
   input: string,
   options: NormalizeVaultWritePathOptions = {}
@@ -51,8 +55,18 @@ export function normalizeRestWritePath(input: string, vaultName: string): Normal
   });
 }
 
-export function normalizeLocalFolderWritePath(input: string): NormalizedVaultWritePath {
-  return normalizeVaultWritePath(input);
+export function normalizeLocalFolderWritePath(
+  input: string,
+  options: NormalizeLocalFolderWritePathOptions = {}
+): NormalizedVaultWritePath {
+  const selectedVaultName = options.selectedVaultName?.trim();
+  if (!selectedVaultName) {
+    return normalizeVaultWritePath(input);
+  }
+  return normalizeVaultWritePath(input, {
+    vaultName: selectedVaultName,
+    stripMatchingVaultPrefix: true
+  });
 }
 
 export function encodeVaultWritePath(path: string): string {

@@ -3,6 +3,7 @@ import type {
   LocalVaultPermissionState
 } from '../interfaces/fileSystemAccess';
 import { normalizeVaultRelativePath } from '../../shared/paths/vaultRelativePath';
+import { normalizeLocalFolderWritePath } from '../../shared/paths/vaultWritePath';
 
 export type PermissionMode = { mode: 'readwrite' };
 export type FileSystemPermissionState = 'granted' | 'prompt' | 'denied';
@@ -38,6 +39,9 @@ export type ShowDirectoryPicker = (options?: {
   mode?: 'read' | 'readwrite';
   startIn?: string;
 }) => Promise<FileSystemDirectoryHandleLike>;
+export interface LocalVaultWritePathPolicy {
+  selectedVaultName?: string;
+}
 
 const DB_NAME = 'ai2ob-local-vault-folders';
 const DB_VERSION = 1;
@@ -127,7 +131,10 @@ export async function ensureReadWritePermission(
   return requested ?? queried ?? 'denied';
 }
 
-function normalizeRelativePath(filePath: string): string[] {
+function normalizeRelativePath(filePath: string, policy: LocalVaultWritePathPolicy = {}): string[] {
+  if (policy.selectedVaultName?.trim()) {
+    return normalizeLocalFolderWritePath(filePath, policy).path.split('/');
+  }
   return normalizeVaultRelativePath(filePath).split('/');
 }
 
@@ -187,9 +194,10 @@ export async function ensureLocalVaultPermission(
 export async function writeIntoDirectory(
   root: FileSystemDirectoryHandleLike,
   filePath: string,
-  content: string | Blob | ArrayBuffer | Uint8Array
+  content: string | Blob | ArrayBuffer | Uint8Array,
+  policy: LocalVaultWritePathPolicy = {}
 ): Promise<void> {
-  const parts = normalizeRelativePath(filePath);
+  const parts = normalizeRelativePath(filePath, policy);
   const fileName = parts.pop();
   if (!fileName) {
     throw new Error('Local vault file path is missing a file name.');
