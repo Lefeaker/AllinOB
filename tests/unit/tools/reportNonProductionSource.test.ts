@@ -149,6 +149,31 @@ describe('report-non-production-source', () => {
     expect(result.deletionCondition).toContain('public imports');
   });
 
+  it('requires import-owner migration before an explicit facade can be deletion-approved', () => {
+    const result = classifySourceFile(
+      input({
+        file: 'src/background/sinks/obsidianRest.ts',
+        retainedSourceImportOwners: [
+          'src/infrastructure/restClient.ts',
+          'src/shared/interfaces/restClient.ts'
+        ],
+        explicitClassificationPatterns: [
+          {
+            pattern: 'src/background/sinks/obsidianRest.ts',
+            decision: 'retain-production-facade',
+            owner: 'background sink compatibility boundary',
+            deletionCondition:
+              'delete only after Obsidian sink imports move to the current writer/service owner'
+          }
+        ]
+      })
+    );
+
+    expect(result.decision).toBe('migrate-import-owner');
+    expect(result.owner).toBe('retained source import graph owner');
+    expect(result.requiredAction).toContain('Remove retained source import');
+  });
+
   it('supports exact retained classifications for completion-audit source contracts', () => {
     const retainedContracts: Array<{
       pattern: string;

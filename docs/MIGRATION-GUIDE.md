@@ -135,7 +135,6 @@ A: 需要。Mock 应与 Chrome 行为一致，保证测试结果可信。
 
 - `scripts/check-migration-progress.sh`：输出所有未迁移文件。
 - `scripts/verify-p2-2-completion.mjs`：校验 Repository 行为。
-- `tools/diagnose-api.js`：调试 storage 内容。
 
 ## 10. 附录 B: 模板
 
