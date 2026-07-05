@@ -24,6 +24,13 @@ import { getFooterMeta, getFooterView, getSettingsView } from '@options/stitch/s
 import { mergeOptions } from '@shared/config/optionsMerger';
 import type { StoredOptions } from '@shared/types';
 
+function withLegacyRootDir<TRest extends NonNullable<StoredOptions['rest']>>(
+  rest: TRest,
+  rootDir: string
+): TRest & { rootDir: string } {
+  return Object.assign(rest, { rootDir });
+}
+
 describe('mountProductionStitchShell renderLifecycle', () => {
   beforeEach(setupProductionStitchShellTest);
 
@@ -499,7 +506,7 @@ describe('mountProductionStitchShell renderLifecycle', () => {
     mountProductionStitchShell({
       controller: asOptionsController(controller),
       initialOptions: {
-        rest: { vault: 'Widget Vault', rootDir: 'WidgetRoot/' } as unknown as StoredOptions['rest'],
+        rest: withLegacyRootDir({ vault: 'Widget Vault' }, 'WidgetRoot/'),
         domainMappings: { 'widget.example': 'widget-folder' }
       },
       messages: null,

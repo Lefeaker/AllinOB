@@ -108,10 +108,13 @@ describe('restSectionStateCore', () => {
     inputs.httpsInput.value = '  https://draft.example/ ';
     inputs.httpInput.value = '';
     inputs.apiKeyInput.value = ' draft-key ';
+    const previous = {
+      rest: { baseUrl: '', rootDir: 'LegacyRoot' }
+    } satisfies { rest: NonNullable<StoredOptions['rest']> & { rootDir: string } };
 
     expect(
       collectRestBaseChanges({
-        previous: { rest: { rootDir: 'LegacyRoot' } } as unknown as StoredOptions,
+        previous,
         defaultInputs: inputs,
         defaults
       })

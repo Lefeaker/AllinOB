@@ -32,6 +32,13 @@ function cloneOptions(options: CompleteOptions): CompleteOptions {
   return cloned;
 }
 
+function withLegacyRootDir<TRest extends CompleteOptions['rest']>(
+  rest: TRest,
+  rootDir: string
+): TRest & { rootDir: string } {
+  return Object.assign(rest, { rootDir });
+}
+
 // ===========================
 // Mock Platform Services
 // ===========================
@@ -339,13 +346,15 @@ describe('ChromeOptionsRepository', () => {
 
     it('should still load old stored options with legacy rootDir while stripping it', async () => {
       mockStorage.sync.get.mockResolvedValue({
-        rest: {
-          baseUrl: 'https://stored.example/',
-          vault: 'LegacyVault',
-          apiKey: 'REST_SECRET_TOKEN',
-          rootDir: 'LegacyRoot/'
-        }
-      } as unknown as Partial<CompleteOptions>);
+        rest: withLegacyRootDir(
+          {
+            baseUrl: 'https://stored.example/',
+            vault: 'LegacyVault',
+            apiKey: 'REST_SECRET_TOKEN'
+          },
+          'LegacyRoot/'
+        )
+      });
 
       const result = await repo.get();
 
@@ -390,10 +399,10 @@ describe('ChromeOptionsRepository', () => {
 
     it('should not write legacy rootDir back when saving over an old snapshot', async () => {
       const currentOptions = cloneOptions(DEFAULT_COMPLETE_OPTIONS);
-      (currentOptions.rest as unknown as Record<string, unknown>).rootDir = 'LegacyRoot/';
+      withLegacyRootDir(currentOptions.rest, 'LegacyRoot/');
       currentOptions.rest.localFolderId = 'local-folder';
       currentOptions.rest.localFolderName = 'Local Folder';
-      const partialUpdate = { interfaceTheme: 'dark' as const };
+      const partialUpdate: Partial<CompleteOptions> = { interfaceTheme: 'dark' };
 
       mockStorage.sync.get.mockResolvedValue(currentOptions);
 

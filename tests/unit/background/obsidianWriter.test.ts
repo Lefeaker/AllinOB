@@ -253,7 +253,7 @@ describe('obsidianWriter', () => {
       apiKey: 'secret',
       localFolderId: 'folder-main',
       localFolderName: 'Main'
-    } as never);
+    });
     const attachmentBlob = new Blob(['png-data'], { type: 'image/png' });
 
     await session.writeAttachment(

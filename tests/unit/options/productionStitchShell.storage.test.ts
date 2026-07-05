@@ -35,6 +35,13 @@ const LOCAL_REST_URLS = getTestRestUrls('localhost');
 const LOCAL_HTTPS_URL = LOCAL_REST_URLS.httpsUrl.replace(/\/$/, '');
 const LOCAL_HTTP_URL = LOCAL_REST_URLS.httpUrl.replace(/\/$/, '');
 
+function withLegacyRootDir<TRest extends NonNullable<StoredOptions['rest']>>(
+  rest: TRest,
+  rootDir: string
+): TRest & { rootDir: string } {
+  return Object.assign(rest, { rootDir });
+}
+
 describe('mountProductionStitchShell storage', () => {
   beforeEach(setupProductionStitchShellTest);
 
@@ -297,14 +304,16 @@ describe('mountProductionStitchShell storage', () => {
     const mounted = mountProductionStitchShell({
       controller: asOptionsController(controller),
       initialOptions: {
-        rest: {
-          baseUrl: LOCAL_HTTPS_URL,
-          vault: 'Research Vault',
-          httpsUrl: LOCAL_HTTPS_URL,
-          httpUrl: LOCAL_HTTP_URL,
-          apiKey: 'token',
-          rootDir: 'Inbox/'
-        } as unknown as StoredOptions['rest']
+        rest: withLegacyRootDir(
+          {
+            baseUrl: LOCAL_HTTPS_URL,
+            vault: 'Research Vault',
+            httpsUrl: LOCAL_HTTPS_URL,
+            httpUrl: LOCAL_HTTP_URL,
+            apiKey: 'token'
+          },
+          'Inbox/'
+        )
       },
       messages: null,
       language: 'en'

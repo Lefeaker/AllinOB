@@ -68,8 +68,7 @@ export function collectRestBaseChanges(params: {
   defaultInputs: RestSectionBaseInputs;
   defaults: RestOptions;
 }): { rest: RestOptions } {
-  const { previous, defaultInputs, defaults } = params;
-  const previousRest = previous?.rest ?? null;
+  const { defaultInputs, defaults } = params;
 
   const https = defaultInputs.httpsInput?.value.trim() ?? '';
   const http = defaultInputs.httpInput?.value.trim() ?? '';

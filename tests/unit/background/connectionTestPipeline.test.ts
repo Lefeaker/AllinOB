@@ -154,12 +154,16 @@ describe('connectionTest pipeline', () => {
     const fetchMock = setFetchMock();
     fetchMock.mockResolvedValue(createResponse('OK', { status: 200 }));
 
-    const result = await handleConnectionTest({
-      httpsUrl: DRAFT_HTTPS_URL,
-      rootDir: 'DraftRoot/',
-      vault: 'DraftVault',
-      apiKey: 'draft-token'
-    } as Parameters<typeof handleConnectionTest>[0] & { rootDir: string });
+    const result = await handleConnectionTest(
+      Object.assign(
+        {
+          httpsUrl: DRAFT_HTTPS_URL,
+          vault: 'DraftVault',
+          apiKey: 'draft-token'
+        },
+        { rootDir: 'DraftRoot/' }
+      )
+    );
 
     expect(result.success).toBe(true);
     const [url, init] = expectFetchCall(fetchMock, 0);

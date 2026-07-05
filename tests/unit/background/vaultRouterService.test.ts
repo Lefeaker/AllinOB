@@ -30,7 +30,7 @@ function createBaseOptions(): Options {
     vaultRouter: undefined,
     fragmentClipper: undefined
   };
-  (options.rest as unknown as Record<string, unknown>).rootDir = 'root';
+  Object.assign(options.rest, { rootDir: 'root' });
   return options;
 }
 

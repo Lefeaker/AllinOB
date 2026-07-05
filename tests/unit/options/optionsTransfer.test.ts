@@ -15,8 +15,8 @@ const screenshotAttachmentSettings = {
   markdownUrlFormat: '../${generatedAttachmentFilePath}'
 };
 
-function legacyStoredOptions(options: Record<string, unknown>): StoredOptions {
-  return options as unknown as StoredOptions;
+function legacyStoredOptions<TOptions extends StoredOptions>(options: TOptions): StoredOptions {
+  return options;
 }
 
 describe('options transfer normalizer', () => {

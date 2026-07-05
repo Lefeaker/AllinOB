@@ -1,5 +1,4 @@
 import type {
-  CompleteOptions,
   StoredOptions,
   OptionsState,
   ClassifierOptions,
@@ -19,6 +18,7 @@ import { DEFAULT_OPTIONS } from './defaultOptions';
 import { sanitizeVaultRouterConfig } from './optionsSanitizer';
 import { resolveTaxonomy } from './taxonomyMigration';
 import { mergeVideoOptions } from './videoOptionsMerger';
+export { omitLegacyRestRootDir, omitLegacyRestRootDirFromOptions } from './legacyRestRootDir';
 
 function mergeClassifierOptions(
   source?: StoredOptions['classifier']
@@ -383,36 +383,13 @@ export function mergeOptions(stored?: StoredOptions | null): OptionsState {
     options.yamlConfig = source.yamlConfig;
   }
 
-  for (const [key, value] of Object.entries(source as unknown as Record<string, unknown>)) {
+  for (const [key, value] of Object.entries(source)) {
     if (!knownKeys.has(key)) {
-      (options as unknown as Record<string, unknown>)[key] = value;
+      Object.assign(options, { [key]: value });
     }
   }
 
   return options;
-}
-
-export function omitLegacyRestRootDir<TRest extends object | undefined>(rest: TRest): TRest {
-  if (!rest || !('rootDir' in rest)) {
-    return rest;
-  }
-
-  const restWithoutRootDir = { ...(rest as Record<string, unknown>) };
-  delete restWithoutRootDir.rootDir;
-  return restWithoutRootDir as TRest;
-}
-
-export function omitLegacyRestRootDirFromOptions<TOptions extends StoredOptions | CompleteOptions>(
-  options: TOptions
-): TOptions {
-  if (!options.rest || !('rootDir' in options.rest)) {
-    return options;
-  }
-
-  return {
-    ...options,
-    rest: omitLegacyRestRootDir(options.rest)
-  } as TOptions;
 }
 
 export const optionsMerger = {
