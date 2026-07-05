@@ -10,7 +10,7 @@ import {
   buildVaultUrl
 } from '../background/utils/restCandidates';
 import { errorHandler, restErrors } from '../shared/errors';
-import { normalizeVaultRelativePath } from '../shared/paths/vaultRelativePath';
+import { encodeVaultWritePath, normalizeRestWritePath } from '../shared/paths/vaultWritePath';
 
 type FailureCategory = 'HTTP error' | 'network error' | 'config error';
 
@@ -138,7 +138,7 @@ export class FetchRestClient implements RestClient {
     content: BodyInit,
     options: RestWriteFileOptions = {}
   ): Promise<void> {
-    const [encodedPath] = this.buildCandidatePaths(filePath, config.vault);
+    const encodedPath = this.buildRestWritePath(filePath, config.vault);
 
     console.log('Writing to Obsidian:', {
       filePath,
@@ -247,10 +247,9 @@ export class FetchRestClient implements RestClient {
     return res;
   }
 
-  private buildCandidatePaths(filePath: string, vaultName: string): [string, string] {
-    const normalized = normalizeVaultRelativePath(filePath, { vaultName });
-    const encoded = normalized.split('/').map(encodeURIComponent).join('/');
-    return [encoded, encoded];
+  private buildRestWritePath(filePath: string, vaultName: string): string {
+    const normalized = normalizeRestWritePath(filePath, vaultName);
+    return encodeVaultWritePath(normalized.path);
   }
 }
 
