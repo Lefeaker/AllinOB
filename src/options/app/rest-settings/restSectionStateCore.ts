@@ -87,8 +87,7 @@ export function collectRestBaseChanges(params: {
       vault: resolvedVault,
       apiKey,
       ...(httpsUrl !== undefined && { httpsUrl }),
-      ...(httpUrl !== undefined && { httpUrl }),
-      ...(previousRest?.rootDir !== undefined && { rootDir: previousRest.rootDir })
+      ...(httpUrl !== undefined && { httpUrl })
     }
   };
 }

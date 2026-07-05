@@ -102,7 +102,7 @@ describe('restSectionStateCore', () => {
     ).toBe(defaults.vault);
   });
 
-  it('collects default vault changes and draft values from populated and blank inputs', () => {
+  it('collects default vault changes and draft values without preserving hidden rootDir', () => {
     const inputs = createInputs();
     inputs.nameInput.value = '  DraftVault  ';
     inputs.httpsInput.value = '  https://draft.example/ ';
@@ -120,8 +120,7 @@ describe('restSectionStateCore', () => {
         baseUrl: 'https://draft.example/',
         vault: 'DraftVault',
         apiKey: ' draft-key ',
-        httpsUrl: 'https://draft.example/',
-        rootDir: 'LegacyRoot'
+        httpsUrl: 'https://draft.example/'
       }
     });
 

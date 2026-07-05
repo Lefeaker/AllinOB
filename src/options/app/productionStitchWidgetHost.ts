@@ -1,4 +1,4 @@
-import { mergeOptions } from '@shared/config/optionsMerger';
+import { mergeOptions, omitLegacyRestRootDirFromOptions } from '@shared/config/optionsMerger';
 import { YamlConfigEditorWidgetAdapter } from '@options/yaml-config-editor/widgetAdapter';
 import type { Messages } from '@i18n';
 import type { CompleteOptions } from '@shared/types/options';
@@ -59,7 +59,10 @@ export function createProductionStitchWidgetHost(
       ...mergeOptions(draft),
       ...draft
     } as CompleteOptions;
-    return applyDisabledExperimentalState(collected, options.getState());
+    return applyDisabledExperimentalState(
+      omitLegacyRestRootDirFromOptions(collected),
+      options.getState()
+    );
   }
 
   function collectDraftWithWidgets(): CompleteOptions {

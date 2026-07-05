@@ -1,4 +1,5 @@
 import type {
+  CompleteOptions,
   StoredOptions,
   OptionsState,
   ClassifierOptions,
@@ -398,6 +399,31 @@ export function mergeOptions(stored?: StoredOptions | null): OptionsState {
   }
 
   return options;
+}
+
+export function omitLegacyRestRootDir<TRest extends Partial<RestOptions> | undefined>(
+  rest: TRest
+): TRest {
+  if (!rest || !('rootDir' in rest)) {
+    return rest;
+  }
+
+  const restWithoutRootDir: Partial<RestOptions> = { ...rest };
+  delete restWithoutRootDir.rootDir;
+  return restWithoutRootDir as TRest;
+}
+
+export function omitLegacyRestRootDirFromOptions<TOptions extends StoredOptions | CompleteOptions>(
+  options: TOptions
+): TOptions {
+  if (!options.rest || !('rootDir' in options.rest)) {
+    return options;
+  }
+
+  return {
+    ...options,
+    rest: omitLegacyRestRootDir(options.rest)
+  } as TOptions;
 }
 
 export const optionsMerger = {

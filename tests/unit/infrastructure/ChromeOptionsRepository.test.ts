@@ -337,6 +337,22 @@ describe('ChromeOptionsRepository', () => {
       });
     });
 
+    it('should still load legacy rootDir from old stored options', async () => {
+      mockStorage.sync.get.mockResolvedValue({
+        rest: {
+          baseUrl: 'https://stored.example/',
+          vault: 'LegacyVault',
+          apiKey: 'REST_SECRET_TOKEN',
+          rootDir: 'LegacyRoot/'
+        }
+      } as Partial<CompleteOptions>);
+
+      const result = await repo.get();
+
+      expect(result.rest.rootDir).toBe('LegacyRoot/');
+      expect(result.rest.vault).toBe('LegacyVault');
+    });
+
     it('should throw StorageError when storage.get fails', async () => {
       const failure = new Error('storage unavailable');
       mockStorage.sync.get.mockRejectedValue(failure);
@@ -370,6 +386,25 @@ describe('ChromeOptionsRepository', () => {
         ...currentOptions,
         ...partialUpdate
       });
+    });
+
+    it('should not write legacy rootDir back when saving over an old snapshot', async () => {
+      const currentOptions = cloneOptions(DEFAULT_COMPLETE_OPTIONS);
+      currentOptions.rest.rootDir = 'LegacyRoot/';
+      currentOptions.rest.localFolderId = 'local-folder';
+      currentOptions.rest.localFolderName = 'Local Folder';
+      const partialUpdate = { interfaceTheme: 'dark' as const };
+
+      mockStorage.sync.get.mockResolvedValue(currentOptions);
+
+      await repo.set(partialUpdate);
+
+      const saved = mockStorage.sync.set.mock.calls.at(-1)?.[1] as CompleteOptions | undefined;
+      expect(saved?.rest).not.toHaveProperty('rootDir');
+      expect(saved?.rest.localFolderId).toBe('local-folder');
+      expect(saved?.rest.localFolderName).toBe('Local Folder');
+      expect(saved?.rest.vault).toBe(currentOptions.rest.vault);
+      expect(saved?.interfaceTheme).toBe('dark');
     });
 
     it('should throw StorageError when storage.set fails', async () => {

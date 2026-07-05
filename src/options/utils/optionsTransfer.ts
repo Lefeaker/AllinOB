@@ -1,4 +1,4 @@
-import { mergeOptions } from '../../shared/config/optionsMerger';
+import { mergeOptions, omitLegacyRestRootDir } from '../../shared/config/optionsMerger';
 import { sanitizeYamlConfigValue } from '../../shared/config/optionsSanitizer';
 import type { CompleteOptions, StoredOptions } from '../../shared/types/options';
 import { deepClone } from './clone';
@@ -37,7 +37,7 @@ export function normalizeOptionsForTransfer(
   const merged = mergeOptions(base);
 
   const normalized: StoredOptions = {
-    rest: deepClone(merged.rest),
+    rest: omitLegacyRestRootDir(deepClone(merged.rest)),
     templates: deepClone(merged.templates),
     domainMappings: deepClone(merged.domainMappings)
   };

@@ -137,7 +137,6 @@ export interface PreviewContent {
     routingTypeOptions: SelectOption[];
     vaults: VaultRecord[];
     routingRules: RoutingRule[];
-    rootDir?: string;
     connectionNotice?: {
       title: string;
       body: string;

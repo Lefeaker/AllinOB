@@ -291,7 +291,7 @@ describe('mountProductionStitchShell storage', () => {
     expect(scheduleDraftSave).toHaveBeenCalledTimes(1);
   });
 
-  it('preserves the hidden storage root while persisting vault table edits through collectDraft', () => {
+  it('prunes the hidden storage root while persisting vault table edits through collectDraft', () => {
     const controller = createController();
     const mounted = mountProductionStitchShell({
       controller: asOptionsController(controller),
@@ -312,7 +312,7 @@ describe('mountProductionStitchShell storage', () => {
     input('Research Vault', 'Notes Vault');
 
     const collected = mounted.collectDraft();
-    expect(collected.rest.rootDir).toBe('Inbox/');
+    expect(collected.rest).not.toHaveProperty('rootDir');
     expect(collected.rest.vault).toBe('Notes Vault');
     expect(collected.vaultRouter?.vaults?.[0]).toEqual(
       expect.objectContaining({

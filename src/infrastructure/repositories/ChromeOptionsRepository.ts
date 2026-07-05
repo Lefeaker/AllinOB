@@ -1,5 +1,6 @@
 import type { StorageService } from '../../platform/interfaces/storage';
 import { optionsMerger } from '../../shared/config';
+import { omitLegacyRestRootDirFromOptions } from '../../shared/config/optionsMerger';
 import type { IOptionsRepository } from '../../shared/repositories';
 import type { CompleteOptions, StoredOptions } from '../../shared/types/options';
 import { StorageError } from '../../shared/errors/repositoryErrors';
@@ -67,7 +68,7 @@ export class ChromeOptionsRepository implements IOptionsRepository {
         ...options
       } as CompleteOptions;
 
-      await this.storage.sync.set(OPTIONS_STORAGE_KEY, updated);
+      await this.storage.sync.set(OPTIONS_STORAGE_KEY, omitLegacyRestRootDirFromOptions(updated));
 
       this.notifyListeners();
     } catch (error) {

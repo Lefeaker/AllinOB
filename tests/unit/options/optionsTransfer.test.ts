@@ -126,7 +126,8 @@ describe('options transfer normalizer', () => {
           httpsUrl: REST_DEFAULTS.httpsUrl,
           httpUrl: REST_DEFAULTS.httpUrl,
           vault: 'MainVault',
-          apiKey: 'REST_SECRET_TOKEN'
+          apiKey: 'REST_SECRET_TOKEN',
+          rootDir: 'LegacyRoot/'
         },
         classifier: {
           enabled: true,
@@ -165,6 +166,7 @@ describe('options transfer normalizer', () => {
     );
 
     expect(normalized.rest?.apiKey).toBe('');
+    expect(normalized.rest).not.toHaveProperty('rootDir');
     expect(normalized.classifier?.apiKey).toBe('');
     expect(normalized.experimentalAi?.apiKey).toBe('');
     expect(normalized.vaultRouter?.vaults[0]?.apiKey).toBe('');
@@ -177,7 +179,8 @@ describe('options transfer normalizer', () => {
         rest: {
           baseUrl: REST_DEFAULTS.baseUrl,
           vault: 'MainVault',
-          apiKey: 'REST_SECRET_TOKEN'
+          apiKey: 'REST_SECRET_TOKEN',
+          rootDir: 'LegacyRoot/'
         },
         classifier: {
           enabled: true,
@@ -214,6 +217,8 @@ describe('options transfer normalizer', () => {
     );
 
     expect(normalized.rest?.apiKey).toBe('REST_SECRET_TOKEN');
+    expect(normalized.rest).not.toHaveProperty('rootDir');
+    expect(normalized.rest?.vault).toBe('MainVault');
     expect(normalized.classifier?.apiKey).toBe('CLASSIFIER_SECRET_TOKEN');
     expect(normalized.experimentalAi?.apiKey).toBe('EXPERIMENTAL_SECRET_TOKEN');
     expect(normalized.vaultRouter?.vaults[0]?.apiKey).toBe('VAULT_SECRET_TOKEN');

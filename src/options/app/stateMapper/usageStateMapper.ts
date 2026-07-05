@@ -73,7 +73,6 @@ export function createProductionContent(
       ...base.storage,
       vaults: toVaultRecord(options),
       routingRules: toRoutingRules(options),
-      rootDir: options.rest.rootDir ?? '',
       ...(overrides.connectionNotice ? { connectionNotice: overrides.connectionNotice } : {})
     },
     output: {
