@@ -28,6 +28,7 @@ import { DEFAULT_DOMAIN_MAPPINGS } from '@shared/constants';
 import { registerService, TOKENS } from '@shared/di';
 import type { StorageService } from '@platform/interfaces/storage';
 import type { CompleteOptions } from './productionStitchShell.helpers';
+import type { StoredOptions } from '@shared/types';
 import { getTestRestUrls } from '../../fixtures/configTestHelpers';
 
 const LOCAL_REST_URLS = getTestRestUrls('localhost');
@@ -303,7 +304,7 @@ describe('mountProductionStitchShell storage', () => {
           httpUrl: LOCAL_HTTP_URL,
           apiKey: 'token',
           rootDir: 'Inbox/'
-        }
+        } as unknown as StoredOptions['rest']
       },
       messages: null,
       language: 'en'

@@ -9,14 +9,13 @@ import { getRestDefaults } from '../../utils/restDefaults';
 
 function createBaseOptions(): Options {
   const restDefaults = getRestDefaults();
-  return {
+  const options: Options = {
     rest: {
       baseUrl: restDefaults.baseUrl,
       httpsUrl: restDefaults.httpsUrl,
       httpUrl: restDefaults.httpUrl,
       vault: restDefaults.vault,
-      apiKey: 'default-key',
-      rootDir: 'root'
+      apiKey: 'default-key'
     },
     templates: {
       article: '',
@@ -31,6 +30,8 @@ function createBaseOptions(): Options {
     vaultRouter: undefined,
     fragmentClipper: undefined
   };
+  (options.rest as unknown as Record<string, unknown>).rootDir = 'root';
+  return options;
 }
 
 describe('vaultRouterService', () => {
@@ -94,7 +95,6 @@ describe('vaultRouterService', () => {
     );
     expect(result.restConfig.vault).toBe('Articles');
     expect(result.restConfig.apiKey).toBe('vault-key');
-    expect(result.restConfig.rootDir).toBeUndefined();
     expect(result.restConfig).not.toHaveProperty('rootDir');
   });
 

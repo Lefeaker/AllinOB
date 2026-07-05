@@ -159,7 +159,7 @@ describe('connectionTest pipeline', () => {
       rootDir: 'DraftRoot/',
       vault: 'DraftVault',
       apiKey: 'draft-token'
-    });
+    } as Parameters<typeof handleConnectionTest>[0] & { rootDir: string });
 
     expect(result.success).toBe(true);
     const [url, init] = expectFetchCall(fetchMock, 0);

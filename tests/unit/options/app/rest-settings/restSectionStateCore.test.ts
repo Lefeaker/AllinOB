@@ -2,7 +2,7 @@
 
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_OPTIONS } from '@shared/config';
-import type { VaultRouterConfig } from '@shared/types';
+import type { StoredOptions, VaultRouterConfig } from '@shared/types';
 import {
   applyRestBaseSectionSnapshot,
   collectAdditionalVaultConfigsCore,
@@ -111,7 +111,7 @@ describe('restSectionStateCore', () => {
 
     expect(
       collectRestBaseChanges({
-        previous: { rest: { rootDir: 'LegacyRoot' } },
+        previous: { rest: { rootDir: 'LegacyRoot' } } as unknown as StoredOptions,
         defaultInputs: inputs,
         defaults
       })

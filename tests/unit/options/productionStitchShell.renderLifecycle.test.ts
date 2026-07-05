@@ -22,6 +22,7 @@ import { mountProductionStitchShell } from '@options/app/productionStitchShell';
 import { previewContent } from '@options/stitch/content';
 import { getFooterMeta, getFooterView, getSettingsView } from '@options/stitch/schema/registry';
 import { mergeOptions } from '@shared/config/optionsMerger';
+import type { StoredOptions } from '@shared/types';
 
 describe('mountProductionStitchShell renderLifecycle', () => {
   beforeEach(setupProductionStitchShellTest);
@@ -498,7 +499,7 @@ describe('mountProductionStitchShell renderLifecycle', () => {
     mountProductionStitchShell({
       controller: asOptionsController(controller),
       initialOptions: {
-        rest: { vault: 'Widget Vault', rootDir: 'WidgetRoot/' },
+        rest: { vault: 'Widget Vault', rootDir: 'WidgetRoot/' } as unknown as StoredOptions['rest'],
         domainMappings: { 'widget.example': 'widget-folder' }
       },
       messages: null,

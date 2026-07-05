@@ -254,15 +254,6 @@ export function mergeOptions(stored?: StoredOptions | null): OptionsState {
     }
   }
 
-  const sourceRootDir = source.rest?.rootDir;
-  const defaultRootDir = defaults.rest.rootDir;
-  if (sourceRootDir !== undefined || defaultRootDir !== undefined) {
-    const resolvedRootDir = sourceRootDir ?? defaultRootDir;
-    if (resolvedRootDir !== undefined) {
-      rest.rootDir = resolvedRootDir;
-    }
-  }
-
   const sourceLocalFolderId = source.rest?.localFolderId;
   if (sourceLocalFolderId !== undefined) {
     rest.localFolderId = sourceLocalFolderId;
@@ -401,14 +392,12 @@ export function mergeOptions(stored?: StoredOptions | null): OptionsState {
   return options;
 }
 
-export function omitLegacyRestRootDir<TRest extends Partial<RestOptions> | undefined>(
-  rest: TRest
-): TRest {
+export function omitLegacyRestRootDir<TRest extends object | undefined>(rest: TRest): TRest {
   if (!rest || !('rootDir' in rest)) {
     return rest;
   }
 
-  const restWithoutRootDir: Partial<RestOptions> = { ...rest };
+  const restWithoutRootDir = { ...(rest as Record<string, unknown>) };
   delete restWithoutRootDir.rootDir;
   return restWithoutRootDir as TRest;
 }

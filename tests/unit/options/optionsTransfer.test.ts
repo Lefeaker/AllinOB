@@ -15,6 +15,10 @@ const screenshotAttachmentSettings = {
   markdownUrlFormat: '../${generatedAttachmentFilePath}'
 };
 
+function legacyStoredOptions(options: Record<string, unknown>): StoredOptions {
+  return options as unknown as StoredOptions;
+}
+
 describe('options transfer normalizer', () => {
   function getScreenshotAttachment(normalized: StoredOptions) {
     if (!normalized.video?.screenshotAttachment) {
@@ -120,7 +124,7 @@ describe('options transfer normalizer', () => {
 
   it('redacts sensitive fields in portable mode', () => {
     const normalized = normalizeOptionsForTransfer(
-      {
+      legacyStoredOptions({
         rest: {
           baseUrl: REST_DEFAULTS.baseUrl,
           httpsUrl: REST_DEFAULTS.httpsUrl,
@@ -161,7 +165,7 @@ describe('options transfer normalizer', () => {
           promptShortcut: 'alt+v',
           screenshotAttachment: screenshotAttachmentSettings
         }
-      },
+      }),
       { mode: 'portable' }
     );
 
@@ -175,7 +179,7 @@ describe('options transfer normalizer', () => {
 
   it('preserves sensitive fields in explicit fullBackup mode without preserving unknown keys', () => {
     const normalized = normalizeOptionsForTransfer(
-      {
+      legacyStoredOptions({
         rest: {
           baseUrl: REST_DEFAULTS.baseUrl,
           vault: 'MainVault',
@@ -212,7 +216,7 @@ describe('options transfer normalizer', () => {
           screenshotAttachment: screenshotAttachmentSettings
         },
         customKey: { hello: 'world' }
-      },
+      }),
       { mode: 'fullBackup' }
     );
 
