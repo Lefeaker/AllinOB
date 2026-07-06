@@ -32,6 +32,13 @@ function cloneOptions(options: CompleteOptions): CompleteOptions {
   return cloned;
 }
 
+function withLegacyRootDir<TRest extends CompleteOptions['rest']>(
+  rest: TRest,
+  rootDir: string
+): TRest & { rootDir: string } {
+  return Object.assign(rest, { rootDir });
+}
+
 // ===========================
 // Mock Platform Services
 // ===========================
@@ -337,6 +344,24 @@ describe('ChromeOptionsRepository', () => {
       });
     });
 
+    it('should still load old stored options with legacy rootDir while stripping it', async () => {
+      mockStorage.sync.get.mockResolvedValue({
+        rest: withLegacyRootDir(
+          {
+            baseUrl: 'https://stored.example/',
+            vault: 'LegacyVault',
+            apiKey: 'REST_SECRET_TOKEN'
+          },
+          'LegacyRoot/'
+        )
+      });
+
+      const result = await repo.get();
+
+      expect(result.rest).not.toHaveProperty('rootDir');
+      expect(result.rest.vault).toBe('LegacyVault');
+    });
+
     it('should throw StorageError when storage.get fails', async () => {
       const failure = new Error('storage unavailable');
       mockStorage.sync.get.mockRejectedValue(failure);
@@ -370,6 +395,25 @@ describe('ChromeOptionsRepository', () => {
         ...currentOptions,
         ...partialUpdate
       });
+    });
+
+    it('should not write legacy rootDir back when saving over an old snapshot', async () => {
+      const currentOptions = cloneOptions(DEFAULT_COMPLETE_OPTIONS);
+      withLegacyRootDir(currentOptions.rest, 'LegacyRoot/');
+      currentOptions.rest.localFolderId = 'local-folder';
+      currentOptions.rest.localFolderName = 'Local Folder';
+      const partialUpdate: Partial<CompleteOptions> = { interfaceTheme: 'dark' };
+
+      mockStorage.sync.get.mockResolvedValue(currentOptions);
+
+      await repo.set(partialUpdate);
+
+      const saved = mockStorage.sync.set.mock.calls.at(-1)?.[1] as CompleteOptions | undefined;
+      expect(saved?.rest).not.toHaveProperty('rootDir');
+      expect(saved?.rest.localFolderId).toBe('local-folder');
+      expect(saved?.rest.localFolderName).toBe('Local Folder');
+      expect(saved?.rest.vault).toBe(currentOptions.rest.vault);
+      expect(saved?.interfaceTheme).toBe('dark');
     });
 
     it('should throw StorageError when storage.set fails', async () => {

@@ -11,7 +11,6 @@ export interface RestOptions {
   httpUrl?: string;
   vault: string;
   apiKey: string;
-  rootDir?: string;
   localFolderId?: string | undefined;
   localFolderName?: string | undefined;
 }

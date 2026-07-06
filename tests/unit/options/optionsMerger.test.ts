@@ -257,7 +257,7 @@ describe('shared optionsMerger', () => {
     });
   });
 
-  it('preserves optional rest fields, legacy template fallbacks, and unknown extensions', () => {
+  it('prunes legacy rest rootDir while preserving current rest fields and unknown extensions', () => {
     const result = mergeOptions(
       parseStoredOptions(
         JSON.stringify({
@@ -288,7 +288,7 @@ describe('shared optionsMerger', () => {
     expect(result.rest.apiKey).toBe(DEFAULT_OPTIONS.rest.apiKey);
     expect(result.rest.httpsUrl).toBe(DEFAULT_OPTIONS.rest.httpsUrl);
     expect(result.rest.httpUrl).toBe('http://stored.example/');
-    expect(result.rest.rootDir).toBe('Root');
+    expect(result.rest).not.toHaveProperty('rootDir');
     expect(result.rest.localFolderId).toBe('');
     expect(result.rest.localFolderName).toBe('Local Folder');
     expect(result.templates.fragment).toBe('Legacy/{title}.md');

@@ -136,6 +136,50 @@ describe('connectionTest pipeline', () => {
     expect(getAuthorizationHeader(init)).toBe('Bearer draft-token');
   });
 
+  it('does not read legacy rootDir when testing default REST configuration', async () => {
+    const { handleConnectionTest } =
+      await import('../../../src/background/pipelines/connectionTest');
+
+    const options = createOptions({
+      baseUrl: 'https://stored.example/',
+      httpsUrl: 'https://stored.example/'
+    });
+    Object.defineProperty(options.rest, 'rootDir', {
+      get() {
+        throw new Error('rootDir should not be read by connection tests');
+      }
+    });
+    getOptionsMock.mockResolvedValue(options);
+
+    const fetchMock = setFetchMock();
+    fetchMock.mockResolvedValue(createResponse('OK', { status: 200 }));
+
+    const result = await handleConnectionTest(
+      Object.assign(
+        {
+          httpsUrl: DRAFT_HTTPS_URL,
+          vault: 'DraftVault',
+          apiKey: 'draft-token'
+        },
+        { rootDir: 'DraftRoot/' }
+      )
+    );
+
+    expect(result.success).toBe(true);
+    const [url, init] = expectFetchCall(fetchMock, 0);
+    expect(url).toBe(withTrailingSlash(DRAFT_HTTPS_URL));
+    expect(getAuthorizationHeader(init)).toBe('Bearer draft-token');
+    expect(result.channels).toEqual([
+      expect.objectContaining({ channel: 'localFolder' }),
+      expect.objectContaining({
+        channel: 'https',
+        url: withTrailingSlash(DRAFT_HTTPS_URL)
+      })
+    ]);
+    expect(JSON.stringify(result)).not.toContain('rootDir');
+    expect(JSON.stringify(result)).not.toContain('DraftRoot');
+  });
+
   it('returns failure summary when all candidates fail', async () => {
     const { handleConnectionTest } =
       await import('../../../src/background/pipelines/connectionTest');

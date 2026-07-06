@@ -1,5 +1,6 @@
 import type { CompleteOptions, StoredOptions } from '../../shared/types/options';
 import type { OptionsStore, OptionsSubscriber } from './types';
+import { omitLegacyRestRootDirFromOptions } from '../../shared/config/optionsMerger';
 import {
   sanitizeStoredOptionsSnapshot,
   sanitizeVaultRouterConfig,
@@ -67,6 +68,7 @@ function applySanitizedOptions(options: StoredOptions | CompleteOptions): {
   changed: boolean;
 } {
   const { normalized, sanitizedYaml } = sanitizeStoredOptionsSnapshot(options);
+  const withoutLegacyRootDir = omitLegacyRestRootDirFromOptions(normalized);
   const vaultResult = sanitizeVaultRouter((options as StoredOptions).vaultRouter);
   const yamlResult = sanitizeYamlConfig(
     (options as StoredOptions).yamlConfig ??
@@ -74,9 +76,10 @@ function applySanitizedOptions(options: StoredOptions | CompleteOptions): {
   );
 
   return {
-    normalized,
+    normalized: withoutLegacyRootDir,
     sanitizedYaml,
-    changed: vaultResult.changed || yamlResult.changed
+    changed:
+      vaultResult.changed || yamlResult.changed || normalized.rest !== withoutLegacyRootDir.rest
   };
 }
 

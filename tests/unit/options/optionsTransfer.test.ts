@@ -15,6 +15,10 @@ const screenshotAttachmentSettings = {
   markdownUrlFormat: '../${generatedAttachmentFilePath}'
 };
 
+function legacyStoredOptions<TOptions extends StoredOptions>(options: TOptions): StoredOptions {
+  return options;
+}
+
 describe('options transfer normalizer', () => {
   function getScreenshotAttachment(normalized: StoredOptions) {
     if (!normalized.video?.screenshotAttachment) {
@@ -120,13 +124,14 @@ describe('options transfer normalizer', () => {
 
   it('redacts sensitive fields in portable mode', () => {
     const normalized = normalizeOptionsForTransfer(
-      {
+      legacyStoredOptions({
         rest: {
           baseUrl: REST_DEFAULTS.baseUrl,
           httpsUrl: REST_DEFAULTS.httpsUrl,
           httpUrl: REST_DEFAULTS.httpUrl,
           vault: 'MainVault',
-          apiKey: 'REST_SECRET_TOKEN'
+          apiKey: 'REST_SECRET_TOKEN',
+          rootDir: 'LegacyRoot/'
         },
         classifier: {
           enabled: true,
@@ -160,11 +165,12 @@ describe('options transfer normalizer', () => {
           promptShortcut: 'alt+v',
           screenshotAttachment: screenshotAttachmentSettings
         }
-      },
+      }),
       { mode: 'portable' }
     );
 
     expect(normalized.rest?.apiKey).toBe('');
+    expect(normalized.rest).not.toHaveProperty('rootDir');
     expect(normalized.classifier?.apiKey).toBe('');
     expect(normalized.experimentalAi?.apiKey).toBe('');
     expect(normalized.vaultRouter?.vaults[0]?.apiKey).toBe('');
@@ -173,11 +179,12 @@ describe('options transfer normalizer', () => {
 
   it('preserves sensitive fields in explicit fullBackup mode without preserving unknown keys', () => {
     const normalized = normalizeOptionsForTransfer(
-      {
+      legacyStoredOptions({
         rest: {
           baseUrl: REST_DEFAULTS.baseUrl,
           vault: 'MainVault',
-          apiKey: 'REST_SECRET_TOKEN'
+          apiKey: 'REST_SECRET_TOKEN',
+          rootDir: 'LegacyRoot/'
         },
         classifier: {
           enabled: true,
@@ -209,11 +216,13 @@ describe('options transfer normalizer', () => {
           screenshotAttachment: screenshotAttachmentSettings
         },
         customKey: { hello: 'world' }
-      },
+      }),
       { mode: 'fullBackup' }
     );
 
     expect(normalized.rest?.apiKey).toBe('REST_SECRET_TOKEN');
+    expect(normalized.rest).not.toHaveProperty('rootDir');
+    expect(normalized.rest?.vault).toBe('MainVault');
     expect(normalized.classifier?.apiKey).toBe('CLASSIFIER_SECRET_TOKEN');
     expect(normalized.experimentalAi?.apiKey).toBe('EXPERIMENTAL_SECRET_TOKEN');
     expect(normalized.vaultRouter?.vaults[0]?.apiKey).toBe('VAULT_SECRET_TOKEN');

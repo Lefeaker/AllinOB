@@ -12,7 +12,6 @@ export const RestOptionsSchema = z.object({
   httpUrl: z.string().url().optional(),
   vault: z.string().min(1, 'Vault name is required'),
   apiKey: z.string().min(10, 'API key must be at least 10 characters'),
-  rootDir: z.string().optional(),
   localFolderId: z.string().optional(),
   localFolderName: z.string().optional()
 });

@@ -538,7 +538,6 @@ function mergeRestOptions(rest: RestOptions, draft?: Partial<RestOptions>): Rest
     apiKey,
     ...(httpsUrl !== undefined && { httpsUrl }),
     ...(httpUrl !== undefined && { httpUrl }),
-    ...(rest.rootDir !== undefined && { rootDir: rest.rootDir }),
     ...(rest.localFolderId !== undefined && { localFolderId: rest.localFolderId }),
     ...(rest.localFolderName !== undefined && { localFolderName: rest.localFolderName })
   };

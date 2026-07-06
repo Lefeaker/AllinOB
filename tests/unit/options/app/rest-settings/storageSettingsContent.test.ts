@@ -57,7 +57,7 @@ describe('storage settings', () => {
     expect(storageViewText).not.toContain('rootDir');
   });
 
-  it('maps REST storage options into production Stitch vault content', () => {
+  it('maps REST storage options into production Stitch vault content without legacy rootDir app-data', () => {
     const options = mergeOptions({
       rest: {
         vault: 'Research',
@@ -71,7 +71,7 @@ describe('storage settings', () => {
 
     const content = createProductionContent(previewContent, options);
 
-    expect(content.storage.rootDir).toBe('Research/');
+    expect(content.storage).not.toHaveProperty('rootDir');
     expect(content.storage.vaults[0]).toEqual(
       expect.objectContaining({
         id: 'default',

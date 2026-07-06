@@ -162,7 +162,8 @@ describe('configTransfer service', () => {
         rest: {
           baseUrl: REST_DEFAULTS.baseUrl,
           vault: 'MainVault',
-          apiKey: 'REST_SECRET_TOKEN'
+          apiKey: 'REST_SECRET_TOKEN',
+          rootDir: 'LegacyRoot/'
         },
         templates: { article: 'Articles/{{title}}.md' },
         domainMappings: { 'example.com': 'Research' },
@@ -205,6 +206,8 @@ describe('configTransfer service', () => {
 
     expect(parsed.options.interfaceTheme).toBe('light');
     expect(parsed.options.rest?.apiKey).toBe('REST_SECRET_TOKEN');
+    expect(parsed.options.rest?.vault).toBe('MainVault');
+    expect(parsed.options.rest).not.toHaveProperty('rootDir');
     expect(parsed.options.templates?.article).toBe('Articles/{{title}}.md');
     expect(parsed.options.domainMappings?.['example.com']).toBe('Research');
     expect(parsed.options.aiChat?.userName).toBe('Researcher');

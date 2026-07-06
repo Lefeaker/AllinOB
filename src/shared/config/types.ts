@@ -112,7 +112,6 @@ export type ReadonlyRestOptions = ReadonlyDeep<{
   httpUrl?: string;
   vault: string;
   apiKey: string;
-  rootDir?: string;
 }>;
 
 export type ReadonlyTemplateOptions = ReadonlyDeep<{

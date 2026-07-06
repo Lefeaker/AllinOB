@@ -1,4 +1,5 @@
 import type { CompleteOptions, StoredOptions } from '../../shared/types/options';
+import { omitLegacyRestRootDirFromOptions } from '../../shared/config/optionsMerger';
 import { sanitizeYamlConfigValue } from '../../shared/config/optionsSanitizer';
 import { StoredOptionsSchema } from '../../shared/schemas';
 import type { AnalyticsTransferPayload } from './analyticsTransfer';
@@ -84,7 +85,7 @@ function sanitizeImportedOptions(candidate: unknown): StoredOptions {
     throw new ConfigTransferError('PARSE_FAILED');
   }
 
-  const options = parsed.data as StoredOptions;
+  const options = omitLegacyRestRootDirFromOptions(parsed.data as StoredOptions);
   if (hasYamlConfig) {
     options.yamlConfig = sanitizeYamlConfigValue(yamlConfigCandidate) ?? null;
   }

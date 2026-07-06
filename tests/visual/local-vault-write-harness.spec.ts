@@ -79,6 +79,22 @@ test.describe('local vault write harness', () => {
     expect(result.restCalls).toEqual([]);
   });
 
+  test('treats the configured vault prefix as the selected local folder root', async ({ page }) => {
+    const result = await page.evaluate(async () => {
+      await window.localVaultHarness.reset();
+      await window.localVaultHarness.chooseDirectory();
+      return window.localVaultHarness.writeMarkdown('RemoteVault/Articles/root.md', '# root');
+    });
+
+    expect(result.target).toMatchObject({
+      storageTarget: 'local-folder',
+      localFolderName: 'HarnessVault'
+    });
+    expect(result.files['Articles/root.md']).toBe('# root');
+    expect(result.files['RemoteVault/Articles/root.md']).toBeUndefined();
+    expect(result.restCalls).toEqual([]);
+  });
+
   test('rejects traversal paths without using REST fallback', async ({ page }) => {
     const result = await page.evaluate(async () => {
       await window.localVaultHarness.reset();

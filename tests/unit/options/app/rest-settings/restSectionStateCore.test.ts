@@ -2,7 +2,7 @@
 
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_OPTIONS } from '@shared/config';
-import type { VaultRouterConfig } from '@shared/types';
+import type { StoredOptions, VaultRouterConfig } from '@shared/types';
 import {
   applyRestBaseSectionSnapshot,
   collectAdditionalVaultConfigsCore,
@@ -102,16 +102,19 @@ describe('restSectionStateCore', () => {
     ).toBe(defaults.vault);
   });
 
-  it('collects default vault changes and draft values from populated and blank inputs', () => {
+  it('collects default vault changes and draft values without preserving hidden rootDir', () => {
     const inputs = createInputs();
     inputs.nameInput.value = '  DraftVault  ';
     inputs.httpsInput.value = '  https://draft.example/ ';
     inputs.httpInput.value = '';
     inputs.apiKeyInput.value = ' draft-key ';
+    const previous = {
+      rest: { baseUrl: '', rootDir: 'LegacyRoot' }
+    } satisfies { rest: NonNullable<StoredOptions['rest']> & { rootDir: string } };
 
     expect(
       collectRestBaseChanges({
-        previous: { rest: { rootDir: 'LegacyRoot' } },
+        previous,
         defaultInputs: inputs,
         defaults
       })
@@ -120,8 +123,7 @@ describe('restSectionStateCore', () => {
         baseUrl: 'https://draft.example/',
         vault: 'DraftVault',
         apiKey: ' draft-key ',
-        httpsUrl: 'https://draft.example/',
-        rootDir: 'LegacyRoot'
+        httpsUrl: 'https://draft.example/'
       }
     });
 
