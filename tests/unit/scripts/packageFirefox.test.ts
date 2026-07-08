@@ -215,6 +215,7 @@ describe('Firefox package signing audit', () => {
         artifactsDir: join(root, 'artifacts'),
         apiKey: 'api-key',
         apiSecret: 'api-secret',
+        amoBaseUrl: 'https://addons.mozilla.org/api/v5/',
         channel: 'listed',
         id: 'extension@example.test',
         uploadSourceCode: join(root, 'source', 'amo-source.zip'),

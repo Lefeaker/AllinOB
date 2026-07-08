@@ -17,6 +17,7 @@ import { auditReleaseArchive } from '../tools/audit-release-archive.mjs';
 
 const args = process.argv.slice(2);
 const FIREFOX_SIGNING_CHANNELS = new Set(['listed', 'unlisted']);
+export const DEFAULT_FIREFOX_AMO_BASE_URL = 'https://addons.mozilla.org/api/v5/';
 
 function hasFlag(flag) {
   return args.includes(flag);
@@ -191,6 +192,7 @@ export async function runSigning(
     artifactBaseName,
     apiKey,
     apiSecret,
+    amoBaseUrl = DEFAULT_FIREFOX_AMO_BASE_URL,
     channel,
     extensionId,
     uploadSourceCodePath,
@@ -229,6 +231,7 @@ export async function runSigning(
     artifactsDir,
     apiKey,
     apiSecret,
+    amoBaseUrl,
     channel: normalizedChannel,
     id: extensionId
   };
@@ -407,6 +410,9 @@ export async function packageFirefoxExtension() {
 
   const apiKey = getFlagValue('--api-key', { defaultValue: process.env.WEB_EXT_API_KEY });
   const apiSecret = getFlagValue('--api-secret', { defaultValue: process.env.WEB_EXT_API_SECRET });
+  const amoBaseUrl = getFlagValue('--amo-base-url', {
+    defaultValue: DEFAULT_FIREFOX_AMO_BASE_URL
+  });
   const channel = normalizeFirefoxSigningChannel(
     getFlagValue('--channel', { defaultValue: 'listed' })
   );
@@ -439,6 +445,7 @@ export async function packageFirefoxExtension() {
     artifactBaseName,
     apiKey,
     apiSecret,
+    amoBaseUrl,
     channel,
     extensionId: manifest?.browser_specific_settings?.gecko?.id,
     uploadSourceCodePath: resolvedUploadSourceCodePath,
