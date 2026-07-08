@@ -5,7 +5,11 @@ import {
 } from '../../shared/attachments/clipAttachmentBinary';
 import { isObjectRecord, type RuntimePropertyValue } from '../../shared/guards/object';
 import type { VideoScreenshotCacheSaveResult } from './videoScreenshotCacheRepository';
-import type { VideoScreenshotCacheRef } from './videoScreenshotCacheTypes';
+import {
+  normalizeVideoScreenshotCacheMaxContentBytes,
+  type VideoScreenshotCacheContentValidationOptions,
+  type VideoScreenshotCacheRef
+} from './videoScreenshotCacheTypes';
 import type { VideoCaptureScreenshot } from './types';
 
 export const VIDEO_SCREENSHOT_CACHE_MESSAGE = 'AIIOB_VIDEO_SCREENSHOT_CACHE';
@@ -13,7 +17,6 @@ export const VIDEO_SCREENSHOT_CACHE_MESSAGE = 'AIIOB_VIDEO_SCREENSHOT_CACHE';
 const VIDEO_SCREENSHOT_CACHE_SCHEMA_VERSION = 1;
 const VIDEO_SCREENSHOT_CACHE_KEY_PREFIX = 'aiob.videoScreenshotCache';
 const VIDEO_SCREENSHOT_CACHE_KEY_VERSION_PREFIX = `${VIDEO_SCREENSHOT_CACHE_KEY_PREFIX}.v${VIDEO_SCREENSHOT_CACHE_SCHEMA_VERSION}.`;
-const VIDEO_SCREENSHOT_CACHE_MAX_CONTENT_BYTES = 1024 * 1024;
 const PAGE_KEY_PATTERN = /^[A-Za-z0-9_-]+$/u;
 
 export interface SerializedVideoScreenshotCacheScreenshot {
@@ -94,11 +97,15 @@ function normalizeTimestamp(value: RuntimePropertyValue): number | null {
     : null;
 }
 
-function normalizeByteLength(value: RuntimePropertyValue): number | null {
+function normalizeByteLength(
+  value: RuntimePropertyValue,
+  options: VideoScreenshotCacheContentValidationOptions
+): number | null {
+  const maxContentBytes = normalizeVideoScreenshotCacheMaxContentBytes(options.maxContentBytes);
   return typeof value === 'number' &&
     Number.isInteger(value) &&
     value > 0 &&
-    value <= VIDEO_SCREENSHOT_CACHE_MAX_CONTENT_BYTES
+    value <= maxContentBytes
     ? value
     : null;
 }
@@ -119,7 +126,8 @@ function createExpectedVideoScreenshotCacheStorageKey(options: {
 }
 
 function isVideoScreenshotCacheRefMessage(
-  value: RuntimePropertyValue
+  value: RuntimePropertyValue,
+  options: VideoScreenshotCacheContentValidationOptions
 ): value is VideoScreenshotCacheRef {
   if (!isObjectRecord(value) || value.schemaVersion !== VIDEO_SCREENSHOT_CACHE_SCHEMA_VERSION) {
     return false;
@@ -131,7 +139,7 @@ function isVideoScreenshotCacheRefMessage(
   const key = normalizeNonEmptyString(value.key);
   const fileName = normalizeNonEmptyString(value.fileName);
   const mimeType = value.mimeType === 'image/jpeg' ? value.mimeType : null;
-  const byteLength = normalizeByteLength(value.byteLength);
+  const byteLength = normalizeByteLength(value.byteLength, options);
   const capturedAt = normalizeTimestamp(value.capturedAt);
   const expiresAt = normalizeTimestamp(value.expiresAt);
 
@@ -161,7 +169,8 @@ function isVideoScreenshotCacheRefMessage(
 }
 
 function normalizeSerializedScreenshot(
-  value: RuntimePropertyValue
+  value: RuntimePropertyValue,
+  options: VideoScreenshotCacheContentValidationOptions
 ): SerializedVideoScreenshotCacheScreenshot | null {
   if (!isObjectRecord(value)) {
     return null;
@@ -170,7 +179,11 @@ function normalizeSerializedScreenshot(
   const fileName = normalizeNonEmptyString(value.fileName);
   const mimeType = value.mimeType === 'image/jpeg' ? value.mimeType : null;
   const capturedAt = normalizeTimestamp(value.capturedAt);
-  const content = isSerializedClipAttachmentBinaryContent(value.content) ? value.content : null;
+  const content =
+    isSerializedClipAttachmentBinaryContent(value.content) &&
+    normalizeByteLength(value.content.byteLength, options) !== null
+      ? value.content
+      : null;
   const dataUrl =
     mimeType && isLegacyDataUrlForMimeType(value.dataUrl, mimeType) ? value.dataUrl : null;
 
@@ -195,7 +208,8 @@ function normalizeSerializedScreenshot(
 }
 
 export function isVideoScreenshotCacheMessage<T>(
-  value: T
+  value: T,
+  options: VideoScreenshotCacheContentValidationOptions = {}
 ): value is T & VideoScreenshotCacheMessage {
   if (!isObjectRecord(value) || value.type !== VIDEO_SCREENSHOT_CACHE_MESSAGE) {
     return false;
@@ -208,23 +222,28 @@ export function isVideoScreenshotCacheMessage<T>(
     return (
       normalizeNonEmptyString(value.input.pageKey) !== null &&
       normalizeNonEmptyString(value.input.captureId) !== null &&
-      normalizeSerializedScreenshot(value.input.screenshot) !== null
+      normalizeSerializedScreenshot(value.input.screenshot, options) !== null
     );
   }
 
   if (value.operation === 'load' || value.operation === 'remove') {
-    return isVideoScreenshotCacheRefMessage(value.ref);
+    return isVideoScreenshotCacheRefMessage(value.ref, options);
   }
 
   if (value.operation === 'removeMany') {
-    return Array.isArray(value.refs) && value.refs.every(isVideoScreenshotCacheRefMessage);
+    const refs = value.refs;
+    return (
+      Array.isArray(refs) &&
+      refs.every((ref: RuntimePropertyValue) => isVideoScreenshotCacheRefMessage(ref, options))
+    );
   }
 
   return value.operation === 'pruneExpired' || value.operation === 'pruneToLimits';
 }
 
 export function normalizeVideoScreenshotCacheMessage<T>(
-  value: T
+  value: T,
+  options: VideoScreenshotCacheContentValidationOptions = {}
 ): VideoScreenshotCacheMessage | null {
-  return isVideoScreenshotCacheMessage(value) ? value : null;
+  return isVideoScreenshotCacheMessage(value, options) ? value : null;
 }

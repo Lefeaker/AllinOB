@@ -18,6 +18,7 @@ import type { MessagingService } from '@platform/interfaces/messaging';
 import type { StorageAreaService } from '@platform/interfaces/storage';
 import {
   VIDEO_SCREENSHOT_CACHE_INDEX_KEY,
+  VIDEO_SCREENSHOT_CACHE_MAX_CONTENT_BYTES,
   createVideoScreenshotCacheStorageKey,
   type VideoScreenshotCacheRef
 } from '@content/video/videoScreenshotCacheTypes';
@@ -97,15 +98,19 @@ class MemoryStorageArea implements StorageAreaService {
 class MemoryBlobStore implements VideoScreenshotCacheBlobStore {
   private readonly values = new Map<string, VideoScreenshotCacheBlobEntry>();
   private readonly delayPageReads: boolean;
+  private readonly maxContentBytes: number | undefined;
   private pendingPageReadResolvers: Array<() => void> = [];
   private pageReadReleaseScheduled = false;
 
-  constructor(options: { delayPageReads?: boolean } = {}) {
+  constructor(options: { delayPageReads?: boolean; maxContentBytes?: number } = {}) {
     this.delayPageReads = options.delayPageReads === true;
+    this.maxContentBytes = options.maxContentBytes;
   }
 
   put(entry: VideoScreenshotCacheBlobEntry): Promise<void> {
-    const normalizedEntry = normalizeVideoScreenshotCacheBlobEntry(entry);
+    const normalizedEntry = normalizeVideoScreenshotCacheBlobEntry(entry, {
+      maxContentBytes: this.maxContentBytes
+    });
     if (normalizedEntry === null) {
       throw new Error('MemoryBlobStore rejected an invalid blob entry.');
     }
@@ -248,7 +253,7 @@ function toMetadata(entry: VideoScreenshotCacheBlobEntry): VideoScreenshotCacheB
 
 function createScreenshot(
   id: string,
-  content: string,
+  content: BlobPart,
   capturedAt = BASE_TIME
 ): VideoCaptureScreenshot {
   const blob = new Blob([content], { type: 'image/jpeg' });
@@ -453,6 +458,38 @@ describe('background-owned video screenshot cache client', () => {
     expect(blobStore.peek(ref.key)).toMatchObject({ expiresAt: BASE_TIME + 123_456 });
     expect(await legacyArea.get(ref.key)).toBeUndefined();
     expect(await legacyArea.get(VIDEO_SCREENSHOT_CACHE_INDEX_KEY)).toBeUndefined();
+    expectNoLegacyScreenshotCacheWrites(legacyArea);
+  });
+
+  it('saves and loads runtime-message screenshots above the Free default when policy raises the cap', async () => {
+    const maxContentBytes = VIDEO_SCREENSHOT_CACHE_MAX_CONTENT_BYTES + 2_048;
+    const content = new Uint8Array(VIDEO_SCREENSHOT_CACHE_MAX_CONTENT_BYTES + 1);
+    const blobStore = new MemoryBlobStore({ maxContentBytes });
+    const legacyArea = new MemoryStorageArea();
+    const handleMessage = createBackgroundVideoScreenshotCacheHandler(
+      { local: legacyArea },
+      {
+        now: () => BASE_TIME,
+        maxContentBytes
+      },
+      { blobStore }
+    );
+    const client = createVideoScreenshotCacheClientRepository({
+      messaging: createClientMessaging(handleMessage)
+    });
+
+    const saved = await client.save({
+      pageKey: 'page-a',
+      captureId: 'capture-large',
+      screenshot: createScreenshot('policy-large-shot', content)
+    });
+
+    const ref = requireSavedRef(saved);
+    expect(ref.byteLength).toBe(VIDEO_SCREENSHOT_CACHE_MAX_CONTENT_BYTES + 1);
+    expect(blobStore.peek(ref.key)?.blob.size).toBe(VIDEO_SCREENSHOT_CACHE_MAX_CONTENT_BYTES + 1);
+    const loaded = await client.load(ref);
+    expect(loaded?.content?.byteLength).toBe(VIDEO_SCREENSHOT_CACHE_MAX_CONTENT_BYTES + 1);
+    expect(loaded?.content?.blob.size).toBe(VIDEO_SCREENSHOT_CACHE_MAX_CONTENT_BYTES + 1);
     expectNoLegacyScreenshotCacheWrites(legacyArea);
   });
 

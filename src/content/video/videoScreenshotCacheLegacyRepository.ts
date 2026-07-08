@@ -44,10 +44,7 @@ export interface VideoScreenshotCacheLegacyRepositoryOptions {
   now: () => number;
 }
 
-export interface VideoScreenshotCacheLegacyLoadResult {
-  entry: VideoScreenshotCacheEntry;
-  blob: Blob;
-}
+export type VideoScreenshotCacheLegacyLoadResult = { entry: VideoScreenshotCacheEntry; blob: Blob };
 
 export type VideoScreenshotCacheBlobSaveInput = {
   pageKey: string;
@@ -59,7 +56,8 @@ export type VideoScreenshotCacheBlobSaveInput = {
 
 export async function removeLegacyVideoScreenshotCacheKeys(
   area: StorageAreaService | undefined,
-  keys: Iterable<string>
+  keys: Iterable<string>,
+  options?: Pick<VideoScreenshotCacheLegacyRepositoryOptions, 'maxContentBytes'>
 ): Promise<void> {
   if (!area) {
     return;
@@ -70,7 +68,7 @@ export async function removeLegacyVideoScreenshotCacheKeys(
   }
 
   await runSerializedVideoScreenshotCacheIndexMutation(area, async () => {
-    const indexState = await readVideoScreenshotCacheIndexState(area);
+    const indexState = await readVideoScreenshotCacheIndexState(area, options);
     const nextEntries = indexState.entries.filter((entry) => !keySet.has(entry.key));
     await persistVideoScreenshotCacheIndex(
       area,
@@ -87,7 +85,7 @@ export async function pruneLegacyVideoScreenshotCache(
   applyLimits: boolean
 ): Promise<void> {
   await runSerializedVideoScreenshotCacheIndexMutation(area, async () => {
-    const indexState = await readVideoScreenshotCacheIndexState(area);
+    const indexState = await readVideoScreenshotCacheIndexState(area, options);
     const nextState = pruneLegacyEntries(indexState.entries, options, applyLimits);
     if (!indexState.dirty && !nextState.dirty && nextState.removedKeys.length === 0) {
       return;
@@ -99,7 +97,8 @@ export async function pruneLegacyVideoScreenshotCache(
 export async function loadLegacyVideoScreenshotCacheEntry(
   area: StorageAreaService | undefined,
   ref: VideoScreenshotCacheRef,
-  operationTime: number
+  operationTime: number,
+  options: Pick<VideoScreenshotCacheLegacyRepositoryOptions, 'maxContentBytes'>
 ): Promise<VideoScreenshotCacheLegacyLoadResult | null> {
   if (!area) {
     return null;
@@ -107,17 +106,17 @@ export async function loadLegacyVideoScreenshotCacheEntry(
 
   const rawEntry = await area.get(ref.key);
   if (rawEntry === undefined) {
-    await removeLegacyVideoScreenshotCacheKeys(area, [ref.key]);
+    await removeLegacyVideoScreenshotCacheKeys(area, [ref.key], options);
     return null;
   }
 
-  const entry = normalizeVideoScreenshotCacheEntry(rawEntry);
+  const entry = normalizeVideoScreenshotCacheEntry(rawEntry, options);
   if (
     entry === null ||
     entry.expiresAt <= operationTime ||
     !matchesVideoScreenshotCacheRef(entry, ref)
   ) {
-    await removeLegacyVideoScreenshotCacheKeys(area, [ref.key]);
+    await removeLegacyVideoScreenshotCacheKeys(area, [ref.key], options);
     return null;
   }
 
@@ -133,7 +132,7 @@ export async function loadLegacyVideoScreenshotCacheEntry(
       )
     };
   } catch {
-    await removeLegacyVideoScreenshotCacheKeys(area, [ref.key]);
+    await removeLegacyVideoScreenshotCacheKeys(area, [ref.key], options);
     return null;
   }
 }
@@ -178,10 +177,13 @@ export async function saveLegacyVideoScreenshotCacheEntry(
   const entry =
     metadata === null
       ? null
-      : normalizeVideoScreenshotCacheEntry({
-          ...metadata,
-          content: serializedContent
-        });
+      : normalizeVideoScreenshotCacheEntry(
+          {
+            ...metadata,
+            content: serializedContent
+          },
+          options
+        );
   if (entry === null) {
     return {
       status: 'skipped',
@@ -190,9 +192,9 @@ export async function saveLegacyVideoScreenshotCacheEntry(
     };
   }
 
-  const ref = buildVideoScreenshotCacheRef(entry);
+  const ref = buildVideoScreenshotCacheRef(entry, options);
   await runSerializedVideoScreenshotCacheIndexMutation(area, async () => {
-    const indexState = await readVideoScreenshotCacheIndexState(area);
+    const indexState = await readVideoScreenshotCacheIndexState(area, options);
     const replacedKeys = indexState.entries
       .filter(
         (currentEntry) =>

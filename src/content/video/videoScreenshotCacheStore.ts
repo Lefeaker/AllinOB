@@ -6,6 +6,7 @@ import {
 } from './videoScreenshotCacheIndex';
 import {
   normalizeVideoScreenshotCacheIndexEntry,
+  type VideoScreenshotCacheContentValidationOptions,
   type VideoScreenshotCacheIndexEntry
 } from './videoScreenshotCacheTypes';
 
@@ -42,15 +43,17 @@ export interface VideoScreenshotCacheBlobStore {
 }
 
 export function normalizeVideoScreenshotCacheBlobMetadata(
-  value: RuntimePropertyValue
+  value: RuntimePropertyValue,
+  options: VideoScreenshotCacheContentValidationOptions = {}
 ): VideoScreenshotCacheBlobMetadata | null {
-  return normalizeVideoScreenshotCacheIndexEntry(value);
+  return normalizeVideoScreenshotCacheIndexEntry(value, options);
 }
 
 export function normalizeVideoScreenshotCacheBlobEntry(
-  value: RuntimePropertyValue
+  value: RuntimePropertyValue,
+  options: VideoScreenshotCacheContentValidationOptions = {}
 ): VideoScreenshotCacheBlobEntry | null {
-  const metadata = normalizeVideoScreenshotCacheBlobMetadata(value);
+  const metadata = normalizeVideoScreenshotCacheBlobMetadata(value, options);
   if (metadata === null || !isObjectRecord(value)) {
     return null;
   }

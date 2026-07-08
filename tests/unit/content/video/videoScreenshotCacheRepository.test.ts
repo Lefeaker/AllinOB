@@ -13,6 +13,7 @@ import {
 } from '@content/video/videoScreenshotCacheStore';
 import {
   VIDEO_SCREENSHOT_CACHE_INDEX_KEY,
+  VIDEO_SCREENSHOT_CACHE_MAX_CONTENT_BYTES,
   normalizeVideoScreenshotCacheEntry,
   normalizeVideoScreenshotCacheIndex,
   type VideoScreenshotCacheRef
@@ -79,15 +80,19 @@ class MemoryStorageArea implements StorageAreaService {
 class MemoryBlobStore implements VideoScreenshotCacheBlobStore {
   private readonly values = new Map<string, VideoScreenshotCacheBlobEntry>();
   private readonly delayPageReads: boolean;
+  private readonly maxContentBytes: number | undefined;
   private pendingPageReadResolvers: Array<() => void> = [];
   private pageReadReleaseScheduled = false;
 
-  constructor(options: { delayPageReads?: boolean } = {}) {
+  constructor(options: { delayPageReads?: boolean; maxContentBytes?: number } = {}) {
     this.delayPageReads = options.delayPageReads === true;
+    this.maxContentBytes = options.maxContentBytes;
   }
 
   put(entry: VideoScreenshotCacheBlobEntry): Promise<void> {
-    const normalizedEntry = normalizeVideoScreenshotCacheBlobEntry(entry);
+    const normalizedEntry = normalizeVideoScreenshotCacheBlobEntry(entry, {
+      maxContentBytes: this.maxContentBytes
+    });
     if (normalizedEntry === null) {
       throw new Error('MemoryBlobStore rejected an invalid blob entry.');
     }
@@ -213,7 +218,7 @@ function requireSaved(
 
 function createScreenshot(
   id: string,
-  content: string,
+  content: BlobPart,
   capturedAt = BASE_TIME
 ): VideoCaptureScreenshot {
   const blob = new Blob([content], { type: 'image/jpeg' });
@@ -430,6 +435,34 @@ describe('videoScreenshotCacheRepository', () => {
       byteLength: 9,
       maxContentBytes: 8
     });
+  });
+
+  it('saves and loads structured blob screenshots above the Free default when policy raises the cap', async () => {
+    const maxContentBytes = VIDEO_SCREENSHOT_CACHE_MAX_CONTENT_BYTES + 2_048;
+    const content = new Uint8Array(VIDEO_SCREENSHOT_CACHE_MAX_CONTENT_BYTES + 1);
+    const blobStore = new MemoryBlobStore({ maxContentBytes });
+    const repository = createStructuredRepository(blobStore, undefined, {
+      now: () => BASE_TIME,
+      ttlMs: 100,
+      maxContentBytes
+    });
+
+    const ref = requireSaved(
+      await repository.save({
+        pageKey: 'page-a',
+        captureId: 'capture-large',
+        screenshot: createScreenshot('shot-large', content)
+      })
+    );
+
+    expect(ref.byteLength).toBe(VIDEO_SCREENSHOT_CACHE_MAX_CONTENT_BYTES + 1);
+    expect(blobStore.peek(ref.key)?.blob.size).toBe(VIDEO_SCREENSHOT_CACHE_MAX_CONTENT_BYTES + 1);
+    const loaded = await repository.load(ref);
+    expect(loaded?.content?.byteLength).toBe(VIDEO_SCREENSHOT_CACHE_MAX_CONTENT_BYTES + 1);
+    expect(loaded?.content?.blob.size).toBe(VIDEO_SCREENSHOT_CACHE_MAX_CONTENT_BYTES + 1);
+
+    await repository.remove(ref);
+    expect(blobStore.peek(ref.key)).toBeNull();
   });
 
   it('structured save returns a typed serialize-failed skip for invalid screenshot metadata', async () => {

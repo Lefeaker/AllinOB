@@ -5,6 +5,7 @@ import {
   normalizeVideoScreenshotCacheIndexEntry,
   normalizeVideoScreenshotCacheRef,
   VIDEO_SCREENSHOT_CACHE_INDEX_KEY,
+  type VideoScreenshotCacheContentValidationOptions,
   type VideoScreenshotCacheRef
 } from './videoScreenshotCacheTypes';
 import type { VideoScreenshotCacheIndexEntry } from './videoScreenshotCacheTypes';
@@ -18,6 +19,7 @@ export interface VideoScreenshotCachePruneOptions {
   now: number;
   maxGlobalEntries: number;
   maxPageEntries: number;
+  maxContentBytes?: number;
   applyLimits: boolean;
 }
 
@@ -113,21 +115,24 @@ export function pruneVideoScreenshotCacheIndexEntries(
   };
 }
 
-export function requireVideoScreenshotCacheIndexEntry(value: {
-  schemaVersion: 1;
-  key: string;
-  pageKey: string;
-  captureId: string;
-  id: string;
-  fileName: string;
-  mimeType: 'image/jpeg';
-  byteLength: number;
-  capturedAt: number;
-  createdAt: number;
-  updatedAt: number;
-  expiresAt: number;
-}): VideoScreenshotCacheIndexEntry {
-  const entry = normalizeVideoScreenshotCacheIndexEntry(value);
+export function requireVideoScreenshotCacheIndexEntry(
+  value: {
+    schemaVersion: 1;
+    key: string;
+    pageKey: string;
+    captureId: string;
+    id: string;
+    fileName: string;
+    mimeType: 'image/jpeg';
+    byteLength: number;
+    capturedAt: number;
+    createdAt: number;
+    updatedAt: number;
+    expiresAt: number;
+  },
+  options: VideoScreenshotCacheContentValidationOptions = {}
+): VideoScreenshotCacheIndexEntry {
+  const entry = normalizeVideoScreenshotCacheIndexEntry(value, options);
   if (entry === null) {
     throw new Error('Invalid video screenshot cache index entry.');
   }
@@ -135,9 +140,10 @@ export function requireVideoScreenshotCacheIndexEntry(value: {
 }
 
 export function buildVideoScreenshotCacheRef(
-  entry: VideoScreenshotCacheIndexEntry
+  entry: VideoScreenshotCacheIndexEntry,
+  options: VideoScreenshotCacheContentValidationOptions = {}
 ): VideoScreenshotCacheRef {
-  const ref = normalizeVideoScreenshotCacheRef(entry);
+  const ref = normalizeVideoScreenshotCacheRef(entry, options);
   if (ref === null) {
     throw new Error('Invalid video screenshot cache ref.');
   }
@@ -163,13 +169,14 @@ export function matchesVideoScreenshotCacheRef(
 }
 
 export async function readVideoScreenshotCacheIndexState(
-  area: Pick<StorageAreaService, 'get'>
+  area: Pick<StorageAreaService, 'get'>,
+  options: VideoScreenshotCacheContentValidationOptions = {}
 ): Promise<VideoScreenshotCacheIndexState> {
   const raw = await area.get(VIDEO_SCREENSHOT_CACHE_INDEX_KEY);
   if (raw === undefined) {
     return { entries: [], dirty: false };
   }
-  const parsed = normalizeVideoScreenshotCacheIndex(raw);
+  const parsed = normalizeVideoScreenshotCacheIndex(raw, options);
   if (parsed === null) {
     return { entries: [], dirty: true };
   }

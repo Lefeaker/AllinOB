@@ -15,7 +15,10 @@ import {
 } from '../../content/video/videoScreenshotCacheMessages';
 import type { VideoScreenshotCacheBlobStore } from '../../content/video/videoScreenshotCacheStore';
 import type { VideoCaptureScreenshot } from '../../content/video/types';
-import { createVideoScreenshotCacheIndexedDbStore } from './videoScreenshotCacheIndexedDbStore';
+import {
+  createVideoScreenshotCacheIndexedDbStore,
+  type VideoScreenshotCacheIndexedDbStoreOptions
+} from './videoScreenshotCacheIndexedDbStore';
 
 export interface BackgroundVideoScreenshotCacheStorage {
   local: StorageAreaService;
@@ -23,6 +26,7 @@ export interface BackgroundVideoScreenshotCacheStorage {
 
 export interface BackgroundVideoScreenshotCacheHandlerDependencies {
   blobStore?: VideoScreenshotCacheBlobStore;
+  indexedDb?: VideoScreenshotCacheIndexedDbStoreOptions['indexedDb'];
 }
 
 export type BackgroundVideoScreenshotCacheHandler = (
@@ -112,7 +116,12 @@ export function createBackgroundVideoScreenshotCacheHandler(
 ): BackgroundVideoScreenshotCacheHandler {
   const repository = createVideoScreenshotCacheRepository(
     {
-      blobStore: dependencies.blobStore ?? createVideoScreenshotCacheIndexedDbStore(),
+      blobStore:
+        dependencies.blobStore ??
+        createVideoScreenshotCacheIndexedDbStore({
+          indexedDb: dependencies.indexedDb,
+          maxContentBytes: options.maxContentBytes
+        }),
       legacyArea: storage.local
     },
     options
@@ -204,7 +213,9 @@ export function createBackgroundVideoScreenshotCacheHandler(
   }
 
   return async (rawMessage) => {
-    const message = normalizeVideoScreenshotCacheMessage(rawMessage);
+    const message = normalizeVideoScreenshotCacheMessage(rawMessage, {
+      maxContentBytes: options.maxContentBytes
+    });
     if (!message) {
       return undefined;
     }

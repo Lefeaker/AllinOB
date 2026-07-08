@@ -1,7 +1,10 @@
 /* @vitest-environment node */
 
 import { describe, expect, it } from 'vitest';
-import { createVideoScreenshotCacheStorageKey } from '@content/video/videoScreenshotCacheTypes';
+import {
+  VIDEO_SCREENSHOT_CACHE_MAX_CONTENT_BYTES,
+  createVideoScreenshotCacheStorageKey
+} from '@content/video/videoScreenshotCacheTypes';
 import {
   VIDEO_SCREENSHOT_CACHE_BLOB_STORE_DB_NAME,
   VIDEO_SCREENSHOT_CACHE_BLOB_STORE_DB_VERSION,
@@ -55,7 +58,7 @@ function createMetadata(
 
 function createEntry(
   overrides: Partial<VideoScreenshotCacheBlobMetadata> = {},
-  content = 'frame-a'
+  content: BlobPart = 'frame-a'
 ): VideoScreenshotCacheBlobEntry {
   const blob = new Blob([content], { type: 'image/jpeg' });
   return {
@@ -96,6 +99,22 @@ describe('videoScreenshotCacheStore', () => {
         pageKey: 'https://example.com/video'
       })
     ).toBeNull();
+  });
+
+  it('uses an injected content byte cap when normalizing blob metadata and rows', () => {
+    const maxContentBytes = VIDEO_SCREENSHOT_CACHE_MAX_CONTENT_BYTES + 2_048;
+    const content = new Uint8Array(VIDEO_SCREENSHOT_CACHE_MAX_CONTENT_BYTES + 1);
+    const entry = createEntry({}, content);
+
+    expect(normalizeVideoScreenshotCacheBlobMetadata(entry)).toBeNull();
+    expect(normalizeVideoScreenshotCacheBlobEntry(entry)).toBeNull();
+    expect(normalizeVideoScreenshotCacheBlobMetadata(entry, { maxContentBytes })).toMatchObject({
+      key: entry.key,
+      byteLength: VIDEO_SCREENSHOT_CACHE_MAX_CONTENT_BYTES + 1
+    });
+    expect(normalizeVideoScreenshotCacheBlobEntry(entry, { maxContentBytes })?.blob.size).toBe(
+      VIDEO_SCREENSHOT_CACHE_MAX_CONTENT_BYTES + 1
+    );
   });
 
   it('prunes metadata with the same newest-first ordering as the storage cache index', () => {

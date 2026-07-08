@@ -240,6 +240,27 @@ describe('videoScreenshotCacheTypes', () => {
     ).toBeNull();
   });
 
+  it('applies an injected content byte cap to cache refs, entries, and index entries', () => {
+    const maxContentBytes = VIDEO_SCREENSHOT_CACHE_MAX_CONTENT_BYTES + 2_048;
+    const byteLength = VIDEO_SCREENSHOT_CACHE_MAX_CONTENT_BYTES + 1;
+    const ref = createCacheRef({ byteLength });
+    const entry = createCacheEntry({ byteLength });
+    const indexEntry = createIndexEntry({ byteLength });
+    const index = createIndex({ entries: [indexEntry] });
+
+    expect(normalizeVideoScreenshotCacheRef(ref)).toBeNull();
+    expect(normalizeVideoScreenshotCacheEntry(entry)).toBeNull();
+    expect(normalizeVideoScreenshotCacheIndexEntry(indexEntry)).toBeNull();
+    expect(normalizeVideoScreenshotCacheIndex(index)).toBeNull();
+
+    expect(normalizeVideoScreenshotCacheRef(ref, { maxContentBytes })).toEqual(ref);
+    expect(normalizeVideoScreenshotCacheEntry(entry, { maxContentBytes })).toEqual(entry);
+    expect(normalizeVideoScreenshotCacheIndexEntry(indexEntry, { maxContentBytes })).toEqual(
+      indexEntry
+    );
+    expect(normalizeVideoScreenshotCacheIndex(index, { maxContentBytes })).toEqual(index);
+  });
+
   it('accepts valid cache entries and index entries', () => {
     const entry = createCacheEntry();
     const indexEntry = createIndexEntry();

@@ -1,7 +1,10 @@
 /* @vitest-environment node */
 
 import { describe, expect, it } from 'vitest';
-import { createVideoScreenshotCacheStorageKey } from '@content/video/videoScreenshotCacheTypes';
+import {
+  VIDEO_SCREENSHOT_CACHE_MAX_CONTENT_BYTES,
+  createVideoScreenshotCacheStorageKey
+} from '@content/video/videoScreenshotCacheTypes';
 import {
   VIDEO_SCREENSHOT_CACHE_BLOB_STORE_DB_NAME,
   VIDEO_SCREENSHOT_CACHE_BLOB_STORE_DB_VERSION,
@@ -296,7 +299,7 @@ function createMetadata(
 
 function createEntry(
   overrides: Partial<VideoScreenshotCacheBlobMetadata> = {},
-  content = 'frame-a'
+  content: BlobPart = 'frame-a'
 ): VideoScreenshotCacheBlobEntry {
   const blob = new Blob([content], { type: 'image/jpeg' });
   return {
@@ -453,5 +456,39 @@ describe('videoScreenshotCacheIndexedDbStore', () => {
     const store = createVideoScreenshotCacheIndexedDbStore({ indexedDb });
     expect(await store.get(corrupt.key)).toBeNull();
     expect(indexedDb.getRaw(corrupt.key)).toBeUndefined();
+  });
+
+  it('uses the injected content byte cap when normalizing IndexedDB blob rows', async () => {
+    const indexedDb = new FakeIndexedDbFactory();
+    const maxContentBytes = VIDEO_SCREENSHOT_CACHE_MAX_CONTENT_BYTES + 2_048;
+    const store = createVideoScreenshotCacheIndexedDbStore({ indexedDb, maxContentBytes });
+    const content = new Uint8Array(VIDEO_SCREENSHOT_CACHE_MAX_CONTENT_BYTES + 1);
+    const entry = createEntry(
+      {
+        pageKey: 'page-a',
+        captureId: 'capture-large',
+        id: 'shot-large'
+      },
+      content
+    );
+
+    await store.put(entry);
+
+    const loaded = await store.get(entry.key);
+    expect(loaded?.byteLength).toBe(VIDEO_SCREENSHOT_CACHE_MAX_CONTENT_BYTES + 1);
+    expect(loaded?.blob.size).toBe(VIDEO_SCREENSHOT_CACHE_MAX_CONTENT_BYTES + 1);
+    expect((await store.listByPageKey('page-a')).map((current) => current.key)).toEqual([
+      entry.key
+    ]);
+    expect((await store.listAllMetadata()).map((current) => current.key)).toEqual([entry.key]);
+
+    const pruneResult = await store.prune({
+      now: BASE_TIME,
+      maxGlobalEntries: 10,
+      maxPageEntries: 10,
+      applyLimits: true
+    });
+    expect(pruneResult.entries.map((current) => current.key)).toEqual([entry.key]);
+    expect(pruneResult.removedKeys).toEqual([]);
   });
 });
