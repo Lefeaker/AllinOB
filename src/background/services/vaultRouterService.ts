@@ -55,7 +55,6 @@ export function selectVaultForClip(options: Options, payload: ClipPayload): Vaul
     apiKey,
     ...(httpsUrl ? { httpsUrl } : {}),
     ...(httpUrl ? { httpUrl } : {}),
-    ...(defaultRest.rootDir ? { rootDir: defaultRest.rootDir } : {}),
     ...(selectedVault.localFolderId ? { localFolderId: selectedVault.localFolderId } : {}),
     ...(selectedVault.localFolderName ? { localFolderName: selectedVault.localFolderName } : {})
   };

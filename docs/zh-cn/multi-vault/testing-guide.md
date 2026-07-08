@@ -1,161 +1,78 @@
-# 多仓库通信测试说明
+# 多仓库连接验证指南
 
-## 📋 测试目标
+## 验证目标
 
-验证两个不同的Obsidian仓库是否可以使用不同的本地FastAPI地址和API密钥正常通信。
+确认 Zendio 使用当前生产 REST 写入路径连接到 Obsidian Local REST API，并且不同仓库的本地配置不会互相污染。
 
-## 🔧 测试配置
+本指南不再提供可直接运行的手写 REST 调试脚本。旧脚本包含固定端口、固定仓库名、旧 URL 语义和示例密钥，容易与当前生产实现不一致。
 
-### 仓库 1: blog
+## 准备工作
 
-- **HTTPS URL**: `https://127.0.0.1:27124/`
-- **HTTP URL**: `http://127.0.0.1:27123/`
-- **Vault名称**: `blog`
-- **API密钥**: `704187227d8368dd93a29d4e5ec64c45da5d571bcfa0cc48d6a09d24e2bafe7c`
+1. 启动 Obsidian，并启用 Local REST API 插件。
+2. 在插件设置中生成或复制本机 API Key。
+3. 在 Zendio Options 中为每个仓库填写：
+   - HTTPS URL 或 HTTP URL
+   - Vault 名称
+   - API Key
+4. API Key 只能来自本机插件设置，不要写入仓库、文档、截图或提交信息。
 
-### 仓库 2: test2
+## 推荐验证方式
 
-- **HTTPS URL**: `https://127.0.0.1:27124/`
-- **HTTP URL**: `http://127.0.0.1:27123/`
-- **Vault名称**: `test2`
-- **API密钥**: `c07295dad534ee023af351d1b95f8e931e174d1440775996b38d5ae02ed7886e`
+### Options 连接测试
 
-## 📁 测试文件
+优先使用 Options 页面内置连接测试。该入口复用生产连接配置与错误展示路径，适合验证本机 Obsidian、端口、Vault 名称和 API Key 是否匹配。
 
-### 1. `multi-vault-test.js`
+### REST 候选与路径单元测试
 
-核心测试逻辑，包含：
-
-- 连接测试功能
-- 文件写入测试功能
-- 错误处理和日志记录
-- 支持浏览器和Node.js环境
-
-### 2. `multi-vault-test.html`
-
-浏览器测试界面，提供：
-
-- 可视化的测试配置显示
-- 一键测试按钮
-- 实时日志显示
-- 测试状态指示器
-
-### 3. `test-multi-vault.js`
-
-Node.js命令行测试脚本，特点：
-
-- 纯Node.js实现，无需额外依赖
-- 支持HTTPS自签名证书
-- 详细的控制台输出
-
-## 🚀 使用方法
-
-### 方法一：浏览器测试（推荐）
-
-1. 确保Obsidian正在运行，Local REST API插件已启用
-2. 在浏览器中打开 `multi-vault-test.html`
-3. 点击"开始测试"按钮
-4. 查看测试日志和结果
-
-### 方法二：Node.js命令行测试
+修改 REST URL、Vault 路径或候选协议逻辑时，运行聚焦测试：
 
 ```bash
-node test-multi-vault.js
+npx vitest run --config vitest.unit.config.ts \
+  tests/unit/infrastructure/restClient.test.ts \
+  tests/unit/shared/restCandidates.test.ts
 ```
 
-## 📊 测试内容
+这些测试覆盖当前生产 URL 契约，包括避免重复拼接 `/vault/<vault>` 的行为。
 
-### 第一阶段：连接测试
+### 写入路径与接口测试
 
-- 测试每个仓库的HTTPS和HTTP连接
-- 验证API密钥是否有效
-- 检查服务器响应状态
+修改写入编排、接口契约或平台服务时，运行：
 
-### 第二阶段：文件写入测试
-
-- 向每个仓库写入测试文件
-- 验证数据传输是否正常
-- 测试不同协议的兼容性
-
-## ⚠️ 测试前准备
-
-1. **启动Obsidian**
-   - 确保Obsidian应用程序正在运行
-
-2. **启用Local REST API插件**
-   - 在Obsidian中安装并启用Local REST API插件
-   - 确保插件正常工作
-
-3. **创建测试仓库**
-   - 创建名为"blog"的仓库
-   - 创建名为"test2"的仓库
-
-4. **配置API密钥**
-   - 在Local REST API插件设置中配置对应的API密钥
-   - 确保密钥与测试配置中的一致
-
-5. **检查网络设置**
-   - 确保防火墙允许本地连接
-   - 检查端口27123和27124是否可用
-
-## 📈 预期结果
-
-### 成功情况
-
-```
-✅ 所有测试通过！两个仓库都可以正常通信。
-
-🔌 连接测试结果:
-   blog: ✅ 成功
-   test2: ✅ 成功
-
-📝 文件写入结果:
-   blog: ✅ 成功
-   test2: ✅ 成功
+```bash
+npx vitest run --config vitest.unit.config.ts \
+  tests/unit/background/obsidianWriter.test.ts \
+  tests/unit/shared/interfaces.test.ts \
+  tests/unit/platform/preview/services.test.ts
 ```
 
-### 失败情况
+### Local Vault 浏览器验证
 
-测试会显示具体的错误信息，常见问题包括：
+需要真实浏览器或 Local Vault 场景时，使用仓库维护的浏览器 harness 和 e2e 命令，而不是复制 REST 请求脚本。具体入口以 `docs/engineering-entrypoints.md` 中的 Local Vault / browser checks 为准。
 
-- 连接被拒绝（服务未启动）
-- 认证失败（API密钥错误）
-- 仓库不存在
-- 网络连接问题
+## 密钥处理要求
 
-## 🔍 故障排除
+- 文档中只写占位符，例如 `<YOUR_LOCAL_REST_API_KEY>`。
+- 本地测试时通过 Options UI、临时环境变量或手动输入提供 API Key。
+- 不提交 64 位十六进制 API Key 示例。
+- 不在终端输出、ledger、截图或最终报告中复制真实 API Key。
+
+## 常见问题
 
 ### 连接失败
 
-1. 检查Obsidian是否正在运行
-2. 确认Local REST API插件已启用
-3. 验证端口是否被占用或被防火墙阻止
+1. 确认 Obsidian 正在运行。
+2. 确认 Local REST API 插件已启用。
+3. 确认 Zendio Options 中的 URL、端口和 Vault 名称与插件配置一致。
+4. 优先查看 Options 连接测试的错误信息。
 
 ### 认证失败
 
-1. 检查API密钥是否正确
-2. 确认在Local REST API插件中配置了对应的密钥
+1. 重新从 Local REST API 插件复制 API Key。
+2. 确认没有多余空格或换行。
+3. 不要复用文档、历史脚本或他人机器上的示例值。
 
-### 仓库不存在
+### 写入路径异常
 
-1. 确认在Obsidian中创建了对应名称的仓库
-2. 检查仓库名称是否与配置中的一致
-
-## 📝 测试文件说明
-
-测试成功后，会在每个仓库中创建测试文件：
-
-- 文件名格式：`测试文件_{仓库名}_{时间戳}.md`
-- 包含仓库信息、测试时间、配置详情等
-- 可以在Obsidian中查看这些文件来确认测试结果
-
-## 🎯 测试意义
-
-这个测试验证了：
-
-1. **多仓库支持**：不同仓库可以独立配置和访问
-2. **API密钥隔离**：每个仓库使用独立的API密钥
-3. **协议兼容性**：HTTPS和HTTP协议都能正常工作
-4. **错误处理**：能够正确处理各种错误情况
-
-通过这个测试，可以确认Zendio扩展的多仓库功能是否能够正常工作。
+1. 先运行 REST 候选与路径单元测试。
+2. 确认当前路径契约由 `src/shared/paths/vaultWritePath.ts`、`src/background/utils/restCandidates.ts` 和 `src/infrastructure/restClient.ts` 覆盖。
+3. 如需排查生产写入流程，优先检查 `src/background/services/obsidianWriter.ts` 相关测试。

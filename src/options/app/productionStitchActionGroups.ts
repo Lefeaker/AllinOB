@@ -131,10 +131,6 @@ export function createProductionStorageActions(
       context.getState().activeLocalFolderVaultIndex = null;
       context.render();
     },
-    'storage:updateRootDir': ({ value }) => {
-      context.getDraft().rest.rootDir = String(value ?? '');
-      context.scheduleDraftSave();
-    },
     'storage:testConnection': () => {
       void (async () => {
         try {

@@ -18,6 +18,7 @@ import { DEFAULT_OPTIONS } from './defaultOptions';
 import { sanitizeVaultRouterConfig } from './optionsSanitizer';
 import { resolveTaxonomy } from './taxonomyMigration';
 import { mergeVideoOptions } from './videoOptionsMerger';
+export { omitLegacyRestRootDir, omitLegacyRestRootDirFromOptions } from './legacyRestRootDir';
 
 function mergeClassifierOptions(
   source?: StoredOptions['classifier']
@@ -253,15 +254,6 @@ export function mergeOptions(stored?: StoredOptions | null): OptionsState {
     }
   }
 
-  const sourceRootDir = source.rest?.rootDir;
-  const defaultRootDir = defaults.rest.rootDir;
-  if (sourceRootDir !== undefined || defaultRootDir !== undefined) {
-    const resolvedRootDir = sourceRootDir ?? defaultRootDir;
-    if (resolvedRootDir !== undefined) {
-      rest.rootDir = resolvedRootDir;
-    }
-  }
-
   const sourceLocalFolderId = source.rest?.localFolderId;
   if (sourceLocalFolderId !== undefined) {
     rest.localFolderId = sourceLocalFolderId;
@@ -391,9 +383,9 @@ export function mergeOptions(stored?: StoredOptions | null): OptionsState {
     options.yamlConfig = source.yamlConfig;
   }
 
-  for (const [key, value] of Object.entries(source as unknown as Record<string, unknown>)) {
+  for (const [key, value] of Object.entries(source)) {
     if (!knownKeys.has(key)) {
-      (options as unknown as Record<string, unknown>)[key] = value;
+      Object.assign(options, { [key]: value });
     }
   }
 

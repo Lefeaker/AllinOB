@@ -244,8 +244,7 @@ function createOptions(
       httpsUrl: restDefaults.httpsUrl,
       httpUrl: restDefaults.httpUrl,
       vault: restDefaults.vault,
-      apiKey: 'key',
-      rootDir: 'root'
+      apiKey: 'key'
     },
     templates: {
       article: '',

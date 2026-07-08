@@ -15,7 +15,7 @@
 ## clipPipeline.ts
 
 - 当前结构：
-  - orchestrator，调用 `contextCapture`、`selectionExtractor`、`obsidianRest`、`vaultRouter`、通知服务等。
+  - orchestrator，调用 `contextCapture`、`selectionExtractor`、`obsidianWriter`、Vault 路由、通知服务等；REST 请求由 `restClient.ts` 和 `restCandidates.ts` 承接。
   - pipeline 包含大量分支（剪藏类型、AI 片段、thumbnail 等），函数内 if/else 较多。
 - 问题点：
   - 既处理剪藏类型判断、又负责结果写入与通知，职责较重。

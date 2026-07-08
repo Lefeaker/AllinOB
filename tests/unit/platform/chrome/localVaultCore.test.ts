@@ -59,7 +59,29 @@ describe('localVaultCore writeIntoDirectory', () => {
     }
   );
 
-  it('keeps a vault-name-like first segment as a local folder segment', async () => {
+  it('strips one matching vault prefix when the selected root policy is provided', async () => {
+    const writable = createWritable();
+    const fileHandle = createFileHandle(writable.handle);
+    const rootGetDirectoryHandle = vi.fn<FileSystemDirectoryHandleLike['getDirectoryHandle']>(() =>
+      Promise.reject(new Error('unexpected nested directory'))
+    );
+    const rootGetFileHandle = vi.fn<FileSystemDirectoryHandleLike['getFileHandle']>(() =>
+      Promise.resolve(fileHandle)
+    );
+    const root: FileSystemDirectoryHandleLike = {
+      name: 'Vault',
+      getDirectoryHandle: rootGetDirectoryHandle,
+      getFileHandle: rootGetFileHandle
+    };
+
+    await writeIntoDirectory(root, 'Vault/safe.md', 'content', { selectedVaultName: 'Vault' });
+
+    expect(rootGetDirectoryHandle).not.toHaveBeenCalled();
+    expect(rootGetFileHandle).toHaveBeenCalledWith('safe.md', { create: true });
+    expect(writable.write).toHaveBeenCalledWith('content');
+  });
+
+  it('keeps a vault-name-like first segment without a selected root policy', async () => {
     const writable = createWritable();
     const fileHandle = createFileHandle(writable.handle);
     const vaultGetDirectoryHandle = vi.fn<FileSystemDirectoryHandleLike['getDirectoryHandle']>(() =>
@@ -89,6 +111,31 @@ describe('localVaultCore writeIntoDirectory', () => {
 
     expect(rootGetDirectoryHandle).toHaveBeenCalledWith('Vault', { create: true });
     expect(vaultGetFileHandle).toHaveBeenCalledWith('safe.md', { create: true });
+    expect(writable.write).toHaveBeenCalledWith('content');
+  });
+
+  it('preserves nonmatching selected root prefixes', async () => {
+    const writable = createWritable();
+    const fileHandle = createFileHandle(writable.handle);
+    const rootGetDirectoryHandle = vi.fn<FileSystemDirectoryHandleLike['getDirectoryHandle']>(() =>
+      Promise.resolve({
+        name: 'vault',
+        getDirectoryHandle: vi.fn(() => Promise.reject(new Error('unexpected nested directory'))),
+        getFileHandle: vi.fn(() => Promise.resolve(fileHandle))
+      })
+    );
+    const rootGetFileHandle = vi.fn<FileSystemDirectoryHandleLike['getFileHandle']>(() =>
+      Promise.reject(new Error('unexpected root file write'))
+    );
+    const root: FileSystemDirectoryHandleLike = {
+      name: 'Vault',
+      getDirectoryHandle: rootGetDirectoryHandle,
+      getFileHandle: rootGetFileHandle
+    };
+
+    await writeIntoDirectory(root, 'vault/safe.md', 'content', { selectedVaultName: 'Vault' });
+
+    expect(rootGetDirectoryHandle).toHaveBeenCalledWith('vault', { create: true });
     expect(writable.write).toHaveBeenCalledWith('content');
   });
 });

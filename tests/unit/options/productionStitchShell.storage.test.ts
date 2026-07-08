@@ -28,11 +28,19 @@ import { DEFAULT_DOMAIN_MAPPINGS } from '@shared/constants';
 import { registerService, TOKENS } from '@shared/di';
 import type { StorageService } from '@platform/interfaces/storage';
 import type { CompleteOptions } from './productionStitchShell.helpers';
+import type { StoredOptions } from '@shared/types';
 import { getTestRestUrls } from '../../fixtures/configTestHelpers';
 
 const LOCAL_REST_URLS = getTestRestUrls('localhost');
 const LOCAL_HTTPS_URL = LOCAL_REST_URLS.httpsUrl.replace(/\/$/, '');
 const LOCAL_HTTP_URL = LOCAL_REST_URLS.httpUrl.replace(/\/$/, '');
+
+function withLegacyRootDir<TRest extends NonNullable<StoredOptions['rest']>>(
+  rest: TRest,
+  rootDir: string
+): TRest & { rootDir: string } {
+  return Object.assign(rest, { rootDir });
+}
 
 describe('mountProductionStitchShell storage', () => {
   beforeEach(setupProductionStitchShellTest);
@@ -291,19 +299,21 @@ describe('mountProductionStitchShell storage', () => {
     expect(scheduleDraftSave).toHaveBeenCalledTimes(1);
   });
 
-  it('preserves the hidden storage root while persisting vault table edits through collectDraft', () => {
+  it('prunes the hidden storage root while persisting vault table edits through collectDraft', () => {
     const controller = createController();
     const mounted = mountProductionStitchShell({
       controller: asOptionsController(controller),
       initialOptions: {
-        rest: {
-          baseUrl: LOCAL_HTTPS_URL,
-          vault: 'Research Vault',
-          httpsUrl: LOCAL_HTTPS_URL,
-          httpUrl: LOCAL_HTTP_URL,
-          apiKey: 'token',
-          rootDir: 'Inbox/'
-        }
+        rest: withLegacyRootDir(
+          {
+            baseUrl: LOCAL_HTTPS_URL,
+            vault: 'Research Vault',
+            httpsUrl: LOCAL_HTTPS_URL,
+            httpUrl: LOCAL_HTTP_URL,
+            apiKey: 'token'
+          },
+          'Inbox/'
+        )
       },
       messages: null,
       language: 'en'
@@ -312,7 +322,7 @@ describe('mountProductionStitchShell storage', () => {
     input('Research Vault', 'Notes Vault');
 
     const collected = mounted.collectDraft();
-    expect(collected.rest.rootDir).toBe('Inbox/');
+    expect(collected.rest).not.toHaveProperty('rootDir');
     expect(collected.rest.vault).toBe('Notes Vault');
     expect(collected.vaultRouter?.vaults?.[0]).toEqual(
       expect.objectContaining({

@@ -123,13 +123,15 @@ describe('validation', () => {
       expect(result.success).toBe(true);
     });
 
-    it('validates options with optional fields', () => {
+    it('strips legacy rest rootDir from stored options while preserving current fields', () => {
       const options = {
         rest: {
           baseUrl: DEFAULT_BASE_URL,
           vault: 'MyVault',
           apiKey: '1234567890',
-          rootDir: 'Notes'
+          rootDir: 'Notes',
+          localFolderId: 'folder-id',
+          localFolderName: 'Local Folder'
         },
         aiChat: {
           includeTimestamps: true,
@@ -139,6 +141,11 @@ describe('validation', () => {
 
       const result = validateOptions(options);
       expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.data.rest).not.toHaveProperty('rootDir');
+        expect(result.data.rest?.localFolderId).toBe('folder-id');
+        expect(result.data.rest?.localFolderName).toBe('Local Folder');
+      }
     });
 
     it('fails validation for invalid data', () => {
@@ -162,18 +169,25 @@ describe('validation', () => {
       }
     });
 
-    it('validates REST options with optional fields', () => {
+    it('strips legacy rootDir from REST options while preserving current optional fields', () => {
       const options = {
         baseUrl: DEFAULT_BASE_URL,
         httpsUrl: DEFAULT_BASE_URL,
         httpUrl: DEFAULT_HTTP_URL,
         vault: 'MyVault',
         apiKey: '1234567890',
-        rootDir: 'Notes'
+        rootDir: 'Notes',
+        localFolderId: 'folder-id',
+        localFolderName: 'Local Folder'
       };
 
       const result = validateRestOptions(options);
       expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.data).not.toHaveProperty('rootDir');
+        expect(result.data.localFolderId).toBe('folder-id');
+        expect(result.data.localFolderName).toBe('Local Folder');
+      }
     });
 
     it('fails validation for invalid baseUrl', () => {
