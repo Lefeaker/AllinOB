@@ -1,7 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
   FREE_SESSION_DRAFT_MAX_RESTORABLE_PAGES,
-  FREE_SESSION_DRAFT_RETENTION_MS
+  FREE_SESSION_DRAFT_RETENTION_MS,
+  createSessionDraftStoragePolicy
 } from '@content/sessionDrafts';
 import { createSessionDraftRepository } from '@content/sessionDrafts/sessionDraftRepository';
 import {
@@ -300,6 +301,81 @@ describe('sessionDraftRepository', () => {
     await expect(storage.get(SESSION_DRAFT_INDEX_KEY)).resolves.toMatchObject({
       entries: []
     });
+  });
+
+  it('applies policy-provided draft entry and envelope technical caps', async () => {
+    const storage = createMemoryStorageArea();
+    const repository = createSessionDraftRepository(storage, {
+      storagePolicy: createSessionDraftStoragePolicy({
+        retentionPolicy: {
+          retentionMs: FREE_SESSION_DRAFT_RETENTION_MS,
+          maxRestorablePages: null,
+          maxItemsPerPage: null
+        },
+        maxDraftEntries: 2,
+        maxEnvelopeBytes: 1_024
+      })
+    });
+
+    await repository.save(
+      createEnvelope('reader', {
+        draftId: 'policy-entry-1',
+        pageUrl: 'https://example.com/post/policy-entry-1',
+        updatedAt: BASE_TIME + 1,
+        expiresAt: BASE_TIME + 1,
+        status: 'restorable',
+        payload: { commentDrafts: { a: '1' } }
+      })
+    );
+    await repository.save(
+      createEnvelope('reader', {
+        draftId: 'policy-entry-2',
+        pageUrl: 'https://example.com/post/policy-entry-2',
+        updatedAt: BASE_TIME + 2,
+        expiresAt: BASE_TIME + 2,
+        status: 'restorable',
+        payload: { commentDrafts: { b: '2' } }
+      })
+    );
+    await repository.save(
+      createEnvelope('reader', {
+        draftId: 'policy-entry-3',
+        pageUrl: 'https://example.com/post/policy-entry-3',
+        updatedAt: BASE_TIME + 3,
+        expiresAt: BASE_TIME + 3,
+        status: 'restorable',
+        payload: { commentDrafts: { c: '3' } }
+      })
+    );
+
+    await expect(
+      storage.get(
+        createIndexEntry(
+          createEnvelope('reader', {
+            draftId: 'policy-entry-1',
+            pageUrl: 'https://example.com/post/policy-entry-1'
+          })
+        ).key
+      )
+    ).resolves.toBeUndefined();
+    await expect(storage.get(SESSION_DRAFT_INDEX_KEY)).resolves.toMatchObject({
+      entries: [
+        expect.objectContaining({ draftId: 'policy-entry-3' }),
+        expect.objectContaining({ draftId: 'policy-entry-2' })
+      ]
+    });
+
+    await expect(
+      repository.save(
+        createEnvelope('reader', {
+          draftId: 'policy-envelope-too-large',
+          pageUrl: 'https://example.com/post/policy-envelope-too-large',
+          updatedAt: BASE_TIME + 4,
+          expiresAt: BASE_TIME + 4,
+          payload: { commentDrafts: { large: 'x'.repeat(2_048) } }
+        })
+      )
+    ).rejects.toThrow('storage limit');
   });
 
   it('does not restore a stale envelope even when its index row still looks fresh', async () => {
@@ -763,7 +839,7 @@ describe('sessionDraftRepository', () => {
           }
         })
       )
-    ).rejects.toThrow(/512 KiB/i);
+    ).rejects.toThrow(/storage limit/i);
 
     expect(setSpy).not.toHaveBeenCalled();
     expect(setManySpy).not.toHaveBeenCalled();

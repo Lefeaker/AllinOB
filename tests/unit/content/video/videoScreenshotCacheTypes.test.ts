@@ -153,7 +153,7 @@ describe('videoScreenshotCacheTypes', () => {
     expect(VIDEO_SCREENSHOT_CACHE_KEY_PREFIX).toBe('aiob.videoScreenshotCache');
     expect(VIDEO_SCREENSHOT_CACHE_INDEX_KEY).toBe('aiob.videoScreenshotCache.index.v1');
     expect(VIDEO_SCREENSHOT_CACHE_TTL_MS).toBe(
-      DEFAULT_SESSION_DRAFT_STORAGE_POLICY.videoScreenshotCacheTtlMs
+      DEFAULT_SESSION_DRAFT_STORAGE_POLICY.videoScreenshotCache.ttlMs
     );
     expect(VIDEO_SCREENSHOT_CACHE_MAX_GLOBAL_ENTRIES).toBe(SESSION_DRAFT_MAX_ENTRIES);
     expect(VIDEO_SCREENSHOT_CACHE_MAX_PAGE_ENTRIES).toBe(50);
@@ -169,7 +169,25 @@ describe('videoScreenshotCacheTypes', () => {
       }
     });
 
-    expect(customStoragePolicy.videoScreenshotCacheTtlMs).toBe(987_654);
+    expect(customStoragePolicy.videoScreenshotCache.ttlMs).toBe(987_654);
+  });
+
+  it('maps custom screenshot cache caps through the storage policy', () => {
+    const customStoragePolicy = createSessionDraftStoragePolicy({
+      videoScreenshotCache: {
+        ttlMs: 123_456,
+        maxGlobalEntries: 12,
+        maxPageEntries: 6,
+        maxContentBytes: 256 * 1024
+      }
+    });
+
+    expect(customStoragePolicy.videoScreenshotCache).toEqual({
+      ttlMs: 123_456,
+      maxGlobalEntries: 12,
+      maxPageEntries: 6,
+      maxContentBytes: 256 * 1024
+    });
   });
 
   it('accepts a metadata-only cache ref', () => {

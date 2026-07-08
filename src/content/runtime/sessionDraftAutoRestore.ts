@@ -33,7 +33,7 @@ export function startSessionDraftAutoRestore(
   const sessionDraftStoragePolicy =
     options.sessionDraftStoragePolicy ?? DEFAULT_SESSION_DRAFT_STORAGE_POLICY;
   const repository = createSessionDraftRepository(options.storage.local, {
-    retentionPolicy: sessionDraftStoragePolicy.retentionPolicy
+    storagePolicy: sessionDraftStoragePolicy
   });
   const abortController = new AbortController();
   let stopped = false;

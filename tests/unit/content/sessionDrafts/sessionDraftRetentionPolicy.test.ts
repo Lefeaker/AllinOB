@@ -2,10 +2,15 @@ import { describe, expect, it } from 'vitest';
 import {
   DEFAULT_SESSION_DRAFT_RETENTION_POLICY,
   DEFAULT_SESSION_DRAFT_STORAGE_POLICY,
+  FREE_VIDEO_SCREENSHOT_CACHE_MAX_CONTENT_BYTES,
+  FREE_VIDEO_SCREENSHOT_CACHE_MAX_GLOBAL_ENTRIES,
+  FREE_VIDEO_SCREENSHOT_CACHE_MAX_PAGE_ENTRIES,
   FREE_SESSION_DRAFT_MAX_ITEMS_PER_PAGE,
   FREE_SESSION_DRAFT_MAX_RESTORABLE_PAGES,
   FREE_SESSION_DRAFT_RETENTION_MS,
   FREE_SESSION_DRAFT_RETENTION_POLICY,
+  SESSION_DRAFT_MAX_ENVELOPE_BYTES,
+  SESSION_DRAFT_MAX_ENTRIES,
   createSessionDraftStoragePolicy,
   filterSessionCommentDraftsForRetainedIds,
   getSessionDraftEffectiveExpiresAt,
@@ -49,15 +54,20 @@ describe('session draft retention policy', () => {
   });
 
   it('maps the default session draft storage policy to the Free retention window', () => {
-    expect(DEFAULT_SESSION_DRAFT_STORAGE_POLICY.retentionPolicy).toEqual(
-      FREE_SESSION_DRAFT_RETENTION_POLICY
-    );
-    expect(DEFAULT_SESSION_DRAFT_STORAGE_POLICY.videoScreenshotCacheTtlMs).toBe(
-      FREE_SESSION_DRAFT_RETENTION_MS
-    );
+    expect(DEFAULT_SESSION_DRAFT_STORAGE_POLICY).toEqual({
+      retentionPolicy: FREE_SESSION_DRAFT_RETENTION_POLICY,
+      maxDraftEntries: SESSION_DRAFT_MAX_ENTRIES,
+      maxEnvelopeBytes: SESSION_DRAFT_MAX_ENVELOPE_BYTES,
+      videoScreenshotCache: {
+        ttlMs: FREE_SESSION_DRAFT_RETENTION_MS,
+        maxGlobalEntries: FREE_VIDEO_SCREENSHOT_CACHE_MAX_GLOBAL_ENTRIES,
+        maxPageEntries: FREE_VIDEO_SCREENSHOT_CACHE_MAX_PAGE_ENTRIES,
+        maxContentBytes: FREE_VIDEO_SCREENSHOT_CACHE_MAX_CONTENT_BYTES
+      }
+    });
   });
 
-  it('maps an injected retention policy to the matching screenshot cache ttl', () => {
+  it('maps an injected partial policy to a complete storage policy', () => {
     const customRetentionPolicy = {
       retentionMs: 123_456,
       maxRestorablePages: null,
@@ -69,7 +79,48 @@ describe('session draft retention policy', () => {
     });
 
     expect(storagePolicy.retentionPolicy).toEqual(customRetentionPolicy);
-    expect(storagePolicy.videoScreenshotCacheTtlMs).toBe(customRetentionPolicy.retentionMs);
+    expect(storagePolicy.maxDraftEntries).toBe(SESSION_DRAFT_MAX_ENTRIES);
+    expect(storagePolicy.maxEnvelopeBytes).toBe(SESSION_DRAFT_MAX_ENVELOPE_BYTES);
+    expect(storagePolicy.videoScreenshotCache).toEqual({
+      ttlMs: customRetentionPolicy.retentionMs,
+      maxGlobalEntries: FREE_VIDEO_SCREENSHOT_CACHE_MAX_GLOBAL_ENTRIES,
+      maxPageEntries: FREE_VIDEO_SCREENSHOT_CACHE_MAX_PAGE_ENTRIES,
+      maxContentBytes: FREE_VIDEO_SCREENSHOT_CACHE_MAX_CONTENT_BYTES
+    });
+  });
+
+  it('accepts neutral extended product caps while keeping explicit technical caps', () => {
+    const storagePolicy = createSessionDraftStoragePolicy({
+      retentionPolicy: {
+        retentionMs: 987_654,
+        maxRestorablePages: null,
+        maxItemsPerPage: null
+      },
+      maxDraftEntries: 13,
+      maxEnvelopeBytes: 128 * 1024,
+      videoScreenshotCache: {
+        ttlMs: 654_321,
+        maxGlobalEntries: 21,
+        maxPageEntries: 7,
+        maxContentBytes: 384 * 1024
+      }
+    });
+
+    expect(storagePolicy).toEqual({
+      retentionPolicy: {
+        retentionMs: 987_654,
+        maxRestorablePages: null,
+        maxItemsPerPage: null
+      },
+      maxDraftEntries: 13,
+      maxEnvelopeBytes: 128 * 1024,
+      videoScreenshotCache: {
+        ttlMs: 654_321,
+        maxGlobalEntries: 21,
+        maxPageEntries: 7,
+        maxContentBytes: 384 * 1024
+      }
+    });
   });
 
   it('normalizes invalid injected policy values back to the Free policy', () => {
@@ -79,11 +130,25 @@ describe('session draft retention policy', () => {
         maxRestorablePages: 0,
         maxItemsPerPage: Number.NaN
       },
-      videoScreenshotCacheTtlMs: -1
+      maxDraftEntries: 0,
+      maxEnvelopeBytes: Number.POSITIVE_INFINITY,
+      videoScreenshotCache: {
+        ttlMs: -1,
+        maxGlobalEntries: Number.NaN,
+        maxPageEntries: 0,
+        maxContentBytes: Number.NEGATIVE_INFINITY
+      }
     });
 
     expect(storagePolicy.retentionPolicy).toEqual(FREE_SESSION_DRAFT_RETENTION_POLICY);
-    expect(storagePolicy.videoScreenshotCacheTtlMs).toBe(FREE_SESSION_DRAFT_RETENTION_MS);
+    expect(storagePolicy.maxDraftEntries).toBe(SESSION_DRAFT_MAX_ENTRIES);
+    expect(storagePolicy.maxEnvelopeBytes).toBe(SESSION_DRAFT_MAX_ENVELOPE_BYTES);
+    expect(storagePolicy.videoScreenshotCache).toEqual({
+      ttlMs: FREE_SESSION_DRAFT_RETENTION_MS,
+      maxGlobalEntries: FREE_VIDEO_SCREENSHOT_CACHE_MAX_GLOBAL_ENTRIES,
+      maxPageEntries: FREE_VIDEO_SCREENSHOT_CACHE_MAX_PAGE_ENTRIES,
+      maxContentBytes: FREE_VIDEO_SCREENSHOT_CACHE_MAX_CONTENT_BYTES
+    });
   });
 
   it('computes effective expiry from the shorter stored expiry and retention window', () => {

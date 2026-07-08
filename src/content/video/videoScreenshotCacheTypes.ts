@@ -1,19 +1,19 @@
 import type { SerializedClipAttachmentBinaryContent } from '../../shared/attachments/clipAttachmentBinary';
 import { isObjectRecord } from '../../shared/guards/object';
-import { DEFAULT_SESSION_DRAFT_STORAGE_POLICY } from '../sessionDrafts/sessionDraftRetentionPolicy';
-import { SESSION_DRAFT_MAX_ENTRIES } from '../sessionDrafts/sessionDraftTypes';
+import { DEFAULT_SESSION_DRAFT_STORAGE_POLICY } from '../sessionDrafts/sessionDraftStoragePolicy';
 
 type Raw = Parameters<typeof isObjectRecord>[0];
-
 export const VIDEO_SCREENSHOT_CACHE_SCHEMA_VERSION = 1;
 export const VIDEO_SCREENSHOT_CACHE_KEY_PREFIX = 'aiob.videoScreenshotCache';
 export const VIDEO_SCREENSHOT_CACHE_INDEX_KEY = `${VIDEO_SCREENSHOT_CACHE_KEY_PREFIX}.index.v1`;
 export const VIDEO_SCREENSHOT_CACHE_TTL_MS =
-  DEFAULT_SESSION_DRAFT_STORAGE_POLICY.videoScreenshotCacheTtlMs;
-export const VIDEO_SCREENSHOT_CACHE_MAX_GLOBAL_ENTRIES = SESSION_DRAFT_MAX_ENTRIES;
-export const VIDEO_SCREENSHOT_CACHE_MAX_PAGE_ENTRIES = 50;
-export const VIDEO_SCREENSHOT_CACHE_MAX_CONTENT_BYTES = 1024 * 1024;
-
+  DEFAULT_SESSION_DRAFT_STORAGE_POLICY.videoScreenshotCache.ttlMs;
+export const VIDEO_SCREENSHOT_CACHE_MAX_GLOBAL_ENTRIES =
+  DEFAULT_SESSION_DRAFT_STORAGE_POLICY.videoScreenshotCache.maxGlobalEntries;
+export const VIDEO_SCREENSHOT_CACHE_MAX_PAGE_ENTRIES =
+  DEFAULT_SESSION_DRAFT_STORAGE_POLICY.videoScreenshotCache.maxPageEntries;
+export const VIDEO_SCREENSHOT_CACHE_MAX_CONTENT_BYTES =
+  DEFAULT_SESSION_DRAFT_STORAGE_POLICY.videoScreenshotCache.maxContentBytes;
 const VIDEO_SCREENSHOT_CACHE_KEY_VERSION_PREFIX = `${VIDEO_SCREENSHOT_CACHE_KEY_PREFIX}.v${VIDEO_SCREENSHOT_CACHE_SCHEMA_VERSION}.`;
 const VIDEO_SCREENSHOT_CACHE_MIME_TYPE = 'image/jpeg';
 const BASE64_PATTERN = /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/u;

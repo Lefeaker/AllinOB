@@ -25,7 +25,7 @@ export interface ReaderSessionDraftControllerOptions {
   doc: Document;
   pageUrl: string;
   storageArea: StorageAreaService;
-  retentionPolicy?: SessionDraftStoragePolicy['retentionPolicy'];
+  sessionDraftStoragePolicy?: SessionDraftStoragePolicy;
   getPageTitle: () => string;
   getHighlights: () => ReaderHighlightRecord[];
   getCommentDrafts: () => SessionCommentDraftSnapshot;
@@ -49,7 +49,7 @@ export class ReaderSessionDraftController {
 
   constructor(private readonly options: ReaderSessionDraftControllerOptions) {
     this.repository = createSessionDraftRepository(this.options.storageArea, {
-      retentionPolicy: this.options.retentionPolicy
+      storagePolicy: this.options.sessionDraftStoragePolicy
     });
     this.persister = createSessionDraftPersister({
       repository: this.repository,
@@ -93,7 +93,9 @@ export class ReaderSessionDraftController {
       highlights: this.options.getHighlights(),
       commentDrafts: this.options.getCommentDrafts(),
       status,
-      ...(this.options.retentionPolicy ? { retentionPolicy: this.options.retentionPolicy } : {}),
+      ...(this.options.sessionDraftStoragePolicy
+        ? { retentionPolicy: this.options.sessionDraftStoragePolicy.retentionPolicy }
+        : {}),
       ...(destination ? { destination } : {})
     });
 

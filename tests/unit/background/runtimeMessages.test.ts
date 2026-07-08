@@ -606,7 +606,7 @@ describe('runtime message listener', () => {
     });
   });
 
-  it('threads only the injected generic screenshot cache ttl into the concrete cache owner', async () => {
+  it('threads the full injected generic screenshot cache policy into the concrete cache owner', async () => {
     const handleVideoScreenshotCacheMessage = vi.fn(
       (message: unknown): Promise<VideoScreenshotCacheResponse | undefined> =>
         Promise.resolve(
@@ -629,6 +629,12 @@ describe('runtime message listener', () => {
         retentionMs: 123_456,
         maxRestorablePages: null,
         maxItemsPerPage: null
+      },
+      videoScreenshotCache: {
+        ttlMs: 123_456,
+        maxGlobalEntries: 11,
+        maxPageEntries: 7,
+        maxContentBytes: 256 * 1024
       }
     });
     const storage = asType<Pick<StorageService, 'local'>>({ local: {} });
@@ -646,12 +652,13 @@ describe('runtime message listener', () => {
         }),
         { getURL: vi.fn((path: string) => `chrome-extension://${path}`) },
         storage,
-        { ttlMs: storagePolicy.videoScreenshotCacheTtlMs }
+        storagePolicy.videoScreenshotCache
       );
 
-      expect(createBackgroundVideoScreenshotCacheHandler).toHaveBeenCalledWith(storage, {
-        ttlMs: 123_456
-      });
+      expect(createBackgroundVideoScreenshotCacheHandler).toHaveBeenCalledWith(
+        storage,
+        storagePolicy.videoScreenshotCache
+      );
       registerRuntimeMessageListener(dependencies);
       await expect(
         listener?.({ type: 'AIIOB_VIDEO_SCREENSHOT_CACHE', operation: 'pruneExpired' }, {})

@@ -1,6 +1,6 @@
 # Commercial Capability Boundary
 
-Last updated: 2026-06-22
+Last updated: 2026-07-08
 
 This document defines the public Zendio boundary for trial packaging, capability policy contracts, and future private commercial overlays.
 
@@ -31,7 +31,8 @@ This document defines the public Zendio boundary for trial packaging, capability
 - `scripts/package.mjs --trial` may write `trial-config.json` into the selected dist directory and may label the manifest name for the artifact.
 - `src/background/trialLifecycle.ts`, `src/utils/trial-manager.ts`, and `src/utils/trial-manager-ports.ts` are production-owned because background startup imports the trial lifecycle path.
 - `src/components/trial-notice.ts` remains a retained facade and is not delete-approved.
-- `src/shared/capabilities/capabilityPolicy.ts` may expose generic restore capability policy types. Public names must stay neutral: no `Pro`, `Subscription`, `Entitlement`, `Customer`, or `Plan`.
+- `src/shared/capabilities/capabilityPolicy.ts` is a neutral facade over the production `SessionDraftStoragePolicy` normalizer. The public contract contains retention limits, draft technical caps, and video screenshot cache caps; it does not define a separate tier source of truth.
+- Public Free defaults remain `48h` retention, `5` restorable page identities, `20` items per page, `100` draft entries, `512 KiB` per draft envelope, `100` screenshot cache entries globally, `50` per page, and `1 MiB` per screenshot.
 
 ## Private-Owner Only Decisions
 

@@ -434,7 +434,7 @@ describe('background-owned video screenshot cache client', () => {
       { local: legacyArea },
       {
         now: () => BASE_TIME,
-        ttlMs: storagePolicy.videoScreenshotCacheTtlMs
+        ttlMs: storagePolicy.videoScreenshotCache.ttlMs
       },
       { blobStore }
     );

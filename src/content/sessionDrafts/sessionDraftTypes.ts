@@ -10,9 +10,25 @@ export interface SessionDraftRetentionPolicy {
   maxItemsPerPage: number | null;
 }
 
+export interface VideoScreenshotCacheStoragePolicy {
+  ttlMs: number;
+  maxGlobalEntries: number;
+  maxPageEntries: number;
+  maxContentBytes: number;
+}
+
 export interface SessionDraftStoragePolicy {
   retentionPolicy: SessionDraftRetentionPolicy;
-  videoScreenshotCacheTtlMs: number;
+  maxDraftEntries: number;
+  maxEnvelopeBytes: number;
+  videoScreenshotCache: VideoScreenshotCacheStoragePolicy;
+}
+
+export interface SessionDraftStoragePolicyOptions {
+  retentionPolicy?: Partial<SessionDraftRetentionPolicy> | null;
+  maxDraftEntries?: number;
+  maxEnvelopeBytes?: number;
+  videoScreenshotCache?: Partial<VideoScreenshotCacheStoragePolicy> | null;
 }
 
 export type SessionDraftMode = 'reader' | 'video';
@@ -99,6 +115,7 @@ export interface SessionDraftIndex {
 }
 
 export interface SessionDraftRepositoryOptions {
+  storagePolicy?: SessionDraftStoragePolicy | undefined;
   ttlMs?: number;
   retentionPolicy?: SessionDraftRetentionPolicy | undefined;
   maxEntries?: number;

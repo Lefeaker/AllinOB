@@ -164,8 +164,6 @@ export class ReaderSession {
       () => this.createDestinationPayload(),
       this.dependencies.optionsPageUrl
     );
-    const sessionDraftRetentionPolicy =
-      this.dependencies.sessionDraftStoragePolicy?.retentionPolicy;
     this.draftController = new ReaderSessionDraftController({
       doc: this.doc,
       pageUrl: this.url,
@@ -176,7 +174,9 @@ export class ReaderSession {
       getDestinationMetadata: () => this.destinationState.metadata,
       onPersistenceFailure: () =>
         this.panelCoordinator.applyHint('failure', this.state.highlights.length),
-      ...(sessionDraftRetentionPolicy ? { retentionPolicy: sessionDraftRetentionPolicy } : {})
+      ...(this.dependencies.sessionDraftStoragePolicy
+        ? { sessionDraftStoragePolicy: this.dependencies.sessionDraftStoragePolicy }
+        : {})
     });
   }
 

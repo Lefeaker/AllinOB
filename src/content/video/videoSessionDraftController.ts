@@ -78,7 +78,7 @@ function readDraftRestoreTelemetryCaptures(
 }
 export class VideoSessionDraftController implements VideoSessionDraftRuntimePort {
   private readonly draftRepository = createSessionDraftRepository(this.options.storageArea, {
-    retentionPolicy: this.options.sessionDraftStoragePolicy?.retentionPolicy
+    storagePolicy: this.options.sessionDraftStoragePolicy
   });
   private readonly draftId = createVideoSessionDraftId();
   private readonly draftPersister: SessionDraftPersister;

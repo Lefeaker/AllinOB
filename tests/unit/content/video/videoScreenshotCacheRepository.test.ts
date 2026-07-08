@@ -2,6 +2,7 @@
 
 import { describe, expect, it } from 'vitest';
 import type { StorageAreaService } from '@platform/interfaces/storage';
+import { createSessionDraftStoragePolicy } from '@content/sessionDrafts';
 import { createVideoScreenshotCacheRepository } from '@content/video/videoScreenshotCacheRepository';
 import {
   normalizeVideoScreenshotCacheBlobEntry,
@@ -378,6 +379,57 @@ describe('videoScreenshotCacheRepository', () => {
     });
     expect(blobStore.snapshotKeys()).toEqual([]);
     expect(legacyArea.snapshotKeys()).toEqual([]);
+  });
+
+  it('accepts full screenshot cache caps from the shared storage policy', async () => {
+    const blobStore = new MemoryBlobStore();
+    const storagePolicy = createSessionDraftStoragePolicy({
+      videoScreenshotCache: {
+        ttlMs: 77,
+        maxGlobalEntries: 2,
+        maxPageEntries: 1,
+        maxContentBytes: 8
+      }
+    });
+    let nowMs = BASE_TIME;
+    const repository = createStructuredRepository(blobStore, undefined, {
+      ...storagePolicy.videoScreenshotCache,
+      now: () => nowMs
+    });
+
+    const firstRef = requireSaved(
+      await repository.save({
+        pageKey: 'page-a',
+        captureId: 'capture-a',
+        screenshot: createScreenshot('shot-a', '12345678', nowMs)
+      })
+    );
+    nowMs += 1;
+    const secondRef = requireSaved(
+      await repository.save({
+        pageKey: 'page-a',
+        captureId: 'capture-b',
+        screenshot: createScreenshot('shot-b', '12345678', nowMs)
+      })
+    );
+
+    expect(firstRef.expiresAt).toBe(BASE_TIME + 77);
+    expect(secondRef.expiresAt).toBe(BASE_TIME + 78);
+    expect(blobStore.snapshotMetadataIds()).toEqual(['shot-b']);
+    await expect(repository.load(firstRef)).resolves.toBeNull();
+
+    await expect(
+      repository.save({
+        pageKey: 'page-b',
+        captureId: 'capture-c',
+        screenshot: createScreenshot('shot-c', '123456789', nowMs)
+      })
+    ).resolves.toEqual({
+      status: 'skipped',
+      reason: 'content-too-large',
+      byteLength: 9,
+      maxContentBytes: 8
+    });
   });
 
   it('structured save returns a typed serialize-failed skip for invalid screenshot metadata', async () => {

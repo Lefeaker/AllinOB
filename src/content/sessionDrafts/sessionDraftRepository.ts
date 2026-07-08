@@ -19,6 +19,7 @@ import {
   normalizeSessionDraftRetentionPolicy,
   pruneSessionDraftIndexEntriesForRetentionPolicy
 } from './sessionDraftRetentionPolicy';
+import { createSessionDraftStoragePolicy } from './sessionDraftStoragePolicy';
 import {
   getCurrentSessionDraftOwnerContext,
   getSessionDraftEnvelopeOwnerContext,
@@ -27,8 +28,6 @@ import {
   normalizeSessionDraftOwnerContext
 } from './sessionDraftTabContext';
 import {
-  SESSION_DRAFT_MAX_ENTRIES,
-  SESSION_DRAFT_MAX_ENVELOPE_BYTES,
   isRestorableSessionDraftStatus,
   type SessionDraftEnvelope,
   type SessionDraftIndexEntry,
@@ -42,31 +41,32 @@ import {
 } from './sessionDraftTypes';
 
 type OwnerContextOptions = SessionDraftSaveOptions | SessionDraftSelectionOptions;
-
 function omitUndefinedOptionalFields<T extends Record<string, unknown>>(value: T): T {
   return Object.fromEntries(Object.entries(value).filter(([, entry]) => entry !== undefined)) as T;
 }
-
 function hasOwnerContextOverride(
   options: OwnerContextOptions | undefined
 ): options is { ownerContext: SessionDraftOwnerContext | null } {
   return Boolean(options) && Object.prototype.hasOwnProperty.call(options, 'ownerContext');
 }
-
 function isPromiseLike<T>(value: unknown): value is Promise<T> {
   return Boolean(value && typeof (value as Promise<T>).then === 'function');
 }
-
 export function createSessionDraftRepository(
   area: StorageAreaService,
   options: SessionDraftRepositoryOptions = {}
 ): SessionDraftRepository {
   const retentionPolicy = normalizeSessionDraftRetentionPolicy(
-    options.retentionPolicy,
+    options.storagePolicy?.retentionPolicy ?? options.retentionPolicy,
     options.ttlMs
   );
-  const maxEntries = options.maxEntries ?? SESSION_DRAFT_MAX_ENTRIES;
-  const maxEnvelopeBytes = options.maxEnvelopeBytes ?? SESSION_DRAFT_MAX_ENVELOPE_BYTES;
+  const storagePolicy = createSessionDraftStoragePolicy({
+    retentionPolicy,
+    maxDraftEntries: options.maxEntries ?? options.storagePolicy?.maxDraftEntries,
+    maxEnvelopeBytes: options.maxEnvelopeBytes ?? options.storagePolicy?.maxEnvelopeBytes
+  });
+  const maxEntries = storagePolicy.maxDraftEntries;
+  const maxEnvelopeBytes = storagePolicy.maxEnvelopeBytes;
   const resolveOwnerContext = options.resolveOwnerContext ?? getCurrentSessionDraftOwnerContext;
   const isOwnerContextActive = options.isOwnerContextActive ?? isSessionDraftOwnerContextActive;
   function resolveOperationOwnerContext(operationOptions?: OwnerContextOptions) {
@@ -124,7 +124,7 @@ export function createSessionDraftRepository(
       throw new Error('Session draft payload must not contain data:image/ strings or binary data.');
     }
     if (measureSessionDraftValueBytes(envelope) > maxEnvelopeBytes) {
-      throw new Error('Session draft envelope exceeds the 512 KiB storage limit.');
+      throw new Error('Session draft envelope exceeds the configured storage limit.');
     }
   }
 

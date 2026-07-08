@@ -3,6 +3,7 @@ export * from './sessionDraftPersister';
 export * from './sessionDraftRepository';
 export * from './sessionDraftRetentionPolicy';
 export * from './sessionDraftSchemas';
+export * from './sessionDraftStoragePolicy';
 export * from './sessionDraftTerminal';
 export * from './sessionDraftTypes';
 export * from '../sessionMutations/sessionMutationTransaction';

@@ -40,6 +40,10 @@ import {
   createBackgroundVideoScreenshotCacheHandler as createScreenshotCacheHandler,
   type BackgroundVideoScreenshotCacheHandler
 } from '../services/videoScreenshotCacheService';
+import {
+  DEFAULT_SESSION_DRAFT_STORAGE_POLICY,
+  type SessionDraftStoragePolicy
+} from '../../content/sessionDrafts';
 import type { StorageService } from '../../platform/interfaces/storage';
 import {
   isGetTabContextMessage,
@@ -51,7 +55,6 @@ import {
 } from './runtimeMessageContracts';
 
 const INVALID_CLIP_PAYLOAD_ERROR = 'Invalid clip payload received.';
-
 function isRepositoryContentMessage(
   message: unknown,
   type: 'clip' | 'readingClip' | 'videoClip',
@@ -64,11 +67,9 @@ function isRepositoryContentMessage(
     typeof message.data[contentField] === 'string'
   );
 }
-
 function toMessagePayload(value: unknown): MessagePayload {
   return value as MessagePayload;
 }
-
 function toReadingClipPayload(data: Record<string, unknown>): unknown {
   return {
     markdown: data.content,
@@ -81,7 +82,6 @@ function toReadingClipPayload(data: Record<string, unknown>): unknown {
     }
   };
 }
-
 function toVideoClipPayload(data: Record<string, unknown>): unknown {
   return {
     markdown: data.content,
@@ -154,7 +154,7 @@ export function createRuntimeMessageListenerDependencies(
   tabs: Pick<TabsService, 'create' | 'get' | 'sendMessage' | 'captureVisibleTab'>,
   runtime: Pick<RuntimeService, 'getURL'>,
   storage: Pick<StorageService, 'local'>,
-  cacheOptions: { ttlMs?: number } = {}
+  cacheOptions: SessionDraftStoragePolicy['videoScreenshotCache'] = DEFAULT_SESSION_DRAFT_STORAGE_POLICY.videoScreenshotCache
 ): RuntimeMessageListenerDependencies {
   return {
     messaging,

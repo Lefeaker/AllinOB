@@ -1,11 +1,10 @@
 import type {
   SessionCommentDraftSnapshot,
   SessionDraftIndexEntry,
-  SessionDraftRetentionPolicy,
-  SessionDraftStoragePolicy
+  SessionDraftRetentionPolicy
 } from './sessionDraftTypes';
 
-export type { SessionDraftRetentionPolicy, SessionDraftStoragePolicy } from './sessionDraftTypes';
+export type { SessionDraftRetentionPolicy } from './sessionDraftTypes';
 
 export const FREE_SESSION_DRAFT_RETENTION_MS = 48 * 60 * 60 * 1000;
 export const FREE_SESSION_DRAFT_MAX_RESTORABLE_PAGES = 5;
@@ -41,26 +40,6 @@ export function normalizeSessionDraftRetentionPolicy(
     )
   };
 }
-
-export function createSessionDraftStoragePolicy(
-  options: {
-    retentionPolicy?: Partial<SessionDraftRetentionPolicy> | null;
-    videoScreenshotCacheTtlMs?: number;
-  } = {}
-): SessionDraftStoragePolicy {
-  const retentionPolicy = normalizeSessionDraftRetentionPolicy(options.retentionPolicy);
-  return {
-    retentionPolicy,
-    videoScreenshotCacheTtlMs: normalizePositiveFiniteNumber(
-      options.videoScreenshotCacheTtlMs,
-      retentionPolicy.retentionMs
-    )
-  };
-}
-
-export const DEFAULT_SESSION_DRAFT_STORAGE_POLICY = createSessionDraftStoragePolicy({
-  retentionPolicy: DEFAULT_SESSION_DRAFT_RETENTION_POLICY
-});
 
 export function getSessionDraftEffectiveExpiresAt(
   value: Pick<SessionDraftIndexEntry, 'updatedAt' | 'expiresAt'>,
@@ -223,7 +202,9 @@ function isRestorableStatus(status: SessionDraftIndexEntry['status']): boolean {
 }
 
 function normalizePositiveFiniteNumber(value: number | undefined, fallback: number): number {
-  return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : fallback;
+  return typeof value === 'number' && Number.isFinite(value) && Number.isInteger(value) && value > 0
+    ? value
+    : fallback;
 }
 
 function normalizeNullablePositiveInteger(
