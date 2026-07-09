@@ -1,6 +1,7 @@
 import {
   DEFAULT_RESTORE_CAPABILITY_POLICY,
-  createExtendedRestoreCapabilityPolicy
+  createExtendedRestoreCapabilityPolicy,
+  defaultRestoreCapabilityPolicyProvider
 } from '../../../../src/shared/capabilities/capabilityPolicy';
 import {
   DEFAULT_SESSION_DRAFT_STORAGE_POLICY,
@@ -32,6 +33,15 @@ describe('restore capability policy', () => {
         maxContentBytes: FREE_VIDEO_SCREENSHOT_CACHE_MAX_CONTENT_BYTES
       }
     });
+  });
+
+  it('exposes a default provider that returns the neutral production policy without refresh side effects', async () => {
+    expect(defaultRestoreCapabilityPolicyProvider.getCurrentPolicy()).toBe(
+      DEFAULT_SESSION_DRAFT_STORAGE_POLICY
+    );
+    await expect(defaultRestoreCapabilityPolicyProvider.refreshPolicy?.()).resolves.toBe(
+      DEFAULT_SESSION_DRAFT_STORAGE_POLICY
+    );
   });
 
   it('creates a neutral extended policy through the production storage policy normalizer', () => {

@@ -5,6 +5,7 @@ import { resolve } from 'node:path';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { repositoryContainer } from '@shared/di/serviceRegistry';
 import { DI_TOKENS } from '@shared/di/tokens';
+import { previewContent as productionPreviewContent } from '@options/app/productionStitchAssets';
 import type { StorageService } from '../../../src/platform/interfaces/storage';
 
 const showStatusMessageMock = vi.hoisted(() => vi.fn());
@@ -176,6 +177,38 @@ describe('options bootstrap', () => {
     const source = readFileSync(resolve(process.cwd(), 'src/options/app/bootstrap.ts'), 'utf8');
     expect(source).not.toContain('mountOptionsShell');
     expect(source).not.toContain('ThemeSwitcher');
+  });
+
+  it('uses an explicit production Stitch assets provider when supplied', async () => {
+    const previewContent = {
+      ...productionPreviewContent,
+      brand: {
+        ...productionPreviewContent.brand,
+        title: 'Injected'
+      }
+    };
+    const getFooterMeta = vi.fn(() => null);
+    const getFooterView = vi.fn(() => null);
+    const getSettingsView = vi.fn(() => null);
+
+    await bootstrapOptionsApp({
+      stitchAssetsProvider: () =>
+        Promise.resolve({
+          previewContent,
+          getFooterMeta,
+          getFooterView,
+          getSettingsView
+        })
+    });
+
+    expect(mountProductionStitchShellMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        previewContent,
+        getFooterMeta,
+        getFooterView,
+        getSettingsView
+      })
+    );
   });
 
   it('cleans up the previous Stitch shell before a second bootstrap', async () => {

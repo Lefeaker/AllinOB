@@ -27,10 +27,15 @@ import {
   type MountedProductionStitchShell
 } from './productionStitchShell';
 import { trackInitialOptionsTelemetry } from './productionStitchTelemetry';
+import {
+  loadProductionStitchAssets,
+  type ProductionStitchAssetsProvider
+} from './productionStitchShellAssetResolver';
 
 export interface OptionsAppBootstrapDependencies {
   storage: StorageService;
   runtime?: Pick<RuntimeService, 'getURL' | 'getBrowserTarget'>;
+  stitchAssetsProvider?: ProductionStitchAssetsProvider;
 }
 
 type CleanupFn = () => void;
@@ -49,17 +54,18 @@ export function configureOptionsAppBootstrapStorage(storage: StorageService): vo
 function resolveOptionsAppBootstrapDependencies(
   dependencies?: Partial<OptionsAppBootstrapDependencies>
 ): OptionsAppBootstrapDependencies {
-  if (dependencies?.storage) {
-    optionsAppBootstrapStorage = dependencies.storage;
-    return { storage: dependencies.storage };
-  }
-
-  if (!optionsAppBootstrapStorage) {
+  const storage = dependencies?.storage ?? optionsAppBootstrapStorage;
+  if (!storage) {
     throw new Error('[Options] StorageService is required for bootstrap.');
   }
 
+  optionsAppBootstrapStorage = storage;
   return {
-    storage: optionsAppBootstrapStorage
+    storage,
+    ...(dependencies?.runtime ? { runtime: dependencies.runtime } : {}),
+    ...(dependencies?.stitchAssetsProvider
+      ? { stitchAssetsProvider: dependencies.stitchAssetsProvider }
+      : {})
   };
 }
 
@@ -122,7 +128,11 @@ export async function bootstrapOptionsApp(
   disposeCleanupHandlers();
   ensureUnloadCleanup();
 
-  const { storage, runtime } = resolveOptionsAppBootstrapDependencies(dependencies);
+  const {
+    storage,
+    runtime,
+    stitchAssetsProvider = loadProductionStitchAssets
+  } = resolveOptionsAppBootstrapDependencies(dependencies);
   configureAnalyticsConfigManager(storage);
   configureGlobalStateManagerStorage(storage);
   configureI18nStorage(storage.sync);
@@ -132,7 +142,7 @@ export async function bootstrapOptionsApp(
   const controller = initializeOptionsController();
   const stored = await controller.loadInitialState();
   const { getFooterMeta, getFooterView, getSettingsView, previewContent } =
-    await import('./productionStitchAssets');
+    await stitchAssetsProvider();
 
   mountedShell = mountProductionStitchShell({
     controller,

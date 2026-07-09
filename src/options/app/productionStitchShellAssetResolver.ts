@@ -7,6 +7,10 @@ export type ResolvedProductionStitchAssets = Required<
   >
 >;
 
+export type ProductionStitchAssetsProvider = () =>
+  | Promise<ResolvedProductionStitchAssets>
+  | ResolvedProductionStitchAssets;
+
 interface ProductionStitchAssetCandidates {
   previewContent: ProductionStitchShellDependencies['previewContent'] | undefined;
   getFooterMeta: ProductionStitchShellDependencies['getFooterMeta'] | undefined;
@@ -37,4 +41,8 @@ export function resolveProductionStitchAssets(
   }
 
   throw new Error('[Options] Production Stitch assets are required before mounting the shell.');
+}
+
+export async function loadProductionStitchAssets(): Promise<ResolvedProductionStitchAssets> {
+  return import('./productionStitchAssets');
 }

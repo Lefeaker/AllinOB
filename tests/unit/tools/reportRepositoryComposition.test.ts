@@ -36,7 +36,8 @@ function writeRepositoryCompositionFixture(overrides: Record<string, string> = {
       'registerFallbackRepositories();'
     ].join('\n')
   );
-  writeFile(root, 'src/content/index.ts', 'registerRepositories({});\n');
+  writeFile(root, 'src/content/index.ts', 'initializeClipperRuntime({});\n');
+  writeFile(root, 'src/content/runtime/contentRuntimeBootstrap.ts', 'registerRepositories({});\n');
   writeFile(root, 'src/background/index.ts', 'registerRepositories({});\n');
   writeFile(
     root,
@@ -81,6 +82,12 @@ describe('repository composition report', () => {
       );
       expect(result.stdout).toContain(
         'src/options/runtimeEntry.ts requires "registerFallbackRepositories()": yes'
+      );
+      expect(result.stdout).toContain(
+        'src/content/index.ts requires "initializeClipperRuntime({": yes'
+      );
+      expect(result.stdout).toContain(
+        'src/content/runtime/contentRuntimeBootstrap.ts requires "registerRepositories({": yes'
       );
     } finally {
       rmSync(root, { recursive: true, force: true });

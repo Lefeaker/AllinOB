@@ -17,6 +17,10 @@ import {
 } from './listeners/runtimeMessages';
 import { ensureUsageStatsInitialized } from './services/usageStats';
 import { bootstrapBackgroundDependencies, configureBackgroundDependencyStorage } from './bootstrap';
+import {
+  defaultRestoreCapabilityPolicyProvider,
+  type RestoreCapabilityPolicyProvider
+} from '../shared/capabilities/capabilityPolicy';
 
 export interface BackgroundStartupDependencies {
   action: ActionService;
@@ -26,6 +30,7 @@ export interface BackgroundStartupDependencies {
   scripting: ScriptingService;
   storage: StorageService;
   tabs: TabsService;
+  restoreStoragePolicyProvider?: RestoreCapabilityPolicyProvider;
 }
 
 export function startBackgroundRuntime(dependencies: BackgroundStartupDependencies): void {
@@ -45,12 +50,17 @@ export function startBackgroundRuntime(dependencies: BackgroundStartupDependenci
     })
   );
 
+  const restoreStoragePolicy = (
+    dependencies.restoreStoragePolicyProvider ?? defaultRestoreCapabilityPolicyProvider
+  ).getCurrentPolicy();
+
   registerRuntimeMessageListener(
     createRuntimeMessageListenerDependencies(
       dependencies.messaging,
       dependencies.tabs,
       dependencies.runtime,
-      dependencies.storage
+      dependencies.storage,
+      restoreStoragePolicy.videoScreenshotCache
     )
   );
 

@@ -8,8 +8,18 @@ import {
 export type RestoreCapabilityPolicy = SessionDraftStoragePolicy;
 export type RestoreCapabilityPolicyOptions = SessionDraftStoragePolicyOptions;
 
+export interface RestoreCapabilityPolicyProvider {
+  getCurrentPolicy(): RestoreCapabilityPolicy;
+  refreshPolicy?(): Promise<RestoreCapabilityPolicy> | RestoreCapabilityPolicy;
+}
+
 export const DEFAULT_RESTORE_CAPABILITY_POLICY: RestoreCapabilityPolicy =
   DEFAULT_SESSION_DRAFT_STORAGE_POLICY;
+
+export const defaultRestoreCapabilityPolicyProvider: RestoreCapabilityPolicyProvider = {
+  getCurrentPolicy: () => DEFAULT_RESTORE_CAPABILITY_POLICY,
+  refreshPolicy: () => Promise.resolve(DEFAULT_RESTORE_CAPABILITY_POLICY)
+};
 
 export function createExtendedRestoreCapabilityPolicy(
   options: RestoreCapabilityPolicyOptions = {}

@@ -113,11 +113,12 @@ const ALLOWED_PREVIEW_DRIFT = new Map([
         'The zero-state Usage Dashboard repair refreshes the generated preview JS hash after extracting the Stitch usage chart renderer from the hotspot components module and making chart-domain math fail closed for all-zero or non-finite values while preserving the frozen reference, preview freeze logic, and Stitch runtime contract.',
         'The v0.2.1 release version bump refreshes the generated preview JS hash after updating the Options runtime version label and regenerated runtime locale artifacts while preserving the frozen reference, preview freeze logic, and Stitch runtime contract.',
         'The v0.2.1 user-facing changelog and version source-of-truth refresh updates the generated preview JS hash after replacing technical release-note prose with user-readable export stability copy, deriving manifest/build release metadata from package.json, and adding the release metadata guard while preserving the frozen reference, preview freeze logic, and Stitch runtime contract.',
+        'P02 public provider bootstrap composition refreshes the generated preview JS hash after Options bootstrap accepts an injected Stitch assets provider while its default still imports productionStitchAssets, preserving the frozen reference, preview freeze logic, and Stitch runtime contract.',
         'The Zendio display-name punctuation refresh updates the generated preview JS hash after replacing the Chinese dash in Zendio-All in Obsidian with the product-approved ASCII hyphen across catalog-backed runtime/static copy and release artifact names while preserving the frozen reference, preview freeze logic, and Stitch runtime contract.'
       ].join(' '),
       leftSha256: '9020ccbd91acd691eccd3fdf568b9a90efbddf0a35d79f36ef1caba702fa0c07',
-      // 2026-06-30 v0.2.1 display-name punctuation / release metadata preview JS hash.
-      rightSha256: 'aab4eae4edb428056b2541e804cfd28a515b811c4a2920a96e76268742bc9319'
+      // 2026-07-09 P02 public provider bootstrap composition preview JS hash.
+      rightSha256: 'e928945d7356bb9c71c258509f9dba6fabdb2887df37263e3deb5faefc0415fb'
     }
   ]
 ]);

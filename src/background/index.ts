@@ -1,5 +1,6 @@
 import { getPlatformServices } from '../platform';
 import { registerRepositories } from '../shared/di/serviceRegistry';
+import { defaultRestoreCapabilityPolicyProvider } from '../shared/capabilities/capabilityPolicy';
 import { startBackgroundRuntime } from './backgroundStartup';
 import { createDefaultTrialLifecycleDependencies, registerTrialLifecycle } from './trialLifecycle';
 
@@ -19,7 +20,8 @@ startBackgroundRuntime({
   runtime: platformServices.runtime,
   scripting: platformServices.scripting,
   storage: platformServices.storage,
-  tabs: platformServices.tabs
+  tabs: platformServices.tabs,
+  restoreStoragePolicyProvider: defaultRestoreCapabilityPolicyProvider
 });
 
 registerTrialLifecycle(

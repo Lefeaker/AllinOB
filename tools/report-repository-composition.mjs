@@ -6,7 +6,8 @@ const root = process.cwd();
 const filesToCheck = {
   'src/options/index.ts': ['bootstrapOptionsRuntime('],
   'src/options/runtimeEntry.ts': ['registerRepositories({', 'registerFallbackRepositories()'],
-  'src/content/index.ts': ['registerRepositories({'],
+  'src/content/index.ts': ['initializeClipperRuntime({'],
+  'src/content/runtime/contentRuntimeBootstrap.ts': ['registerRepositories({'],
   'src/background/index.ts': ['registerRepositories({'],
   'src/onboarding/index.ts': ['registerRepositories({', 'registerFallbackRepositories()'],
   'src/shared/di/serviceRegistry.ts': [

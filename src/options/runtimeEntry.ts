@@ -1,11 +1,24 @@
 import { bootstrapOptionsApp, configureOptionsAppBootstrapStorage } from '@options/app/bootstrap';
+import type { ProductionStitchAssetsProvider } from '@options/app/productionStitchShellAssetResolver';
 import { registerFallbackRepositories, registerRepositories } from '@shared/di/serviceRegistry';
 import { createMemoryStorageService } from '@platform/preview/memoryStorage';
 import { createPreviewPlatformServices } from '@platform/preview/services';
 import { registerService, TOKENS } from '@shared/di';
 import type { PlatformServices } from '../platform/types';
 
-export async function bootstrapOptionsRuntime(platformServices?: PlatformServices): Promise<void> {
+export type OptionsRuntimePlatformServices = Pick<
+  PlatformServices,
+  'storage' | 'messaging' | 'tabs' | 'runtime'
+>;
+
+export interface OptionsRuntimeBootstrapDependencies {
+  stitchAssetsProvider?: ProductionStitchAssetsProvider;
+}
+
+export async function bootstrapOptionsRuntime(
+  platformServices?: OptionsRuntimePlatformServices,
+  dependencies: OptionsRuntimeBootstrapDependencies = {}
+): Promise<void> {
   const hasChromeStorage =
     typeof chrome !== 'undefined' &&
     Boolean(chrome.runtime) &&
@@ -43,6 +56,9 @@ export async function bootstrapOptionsRuntime(platformServices?: PlatformService
   configureOptionsAppBootstrapStorage(bootstrapStorage);
   await bootstrapOptionsApp({
     storage: bootstrapStorage,
-    ...(runtime ? { runtime } : {})
+    ...(runtime ? { runtime } : {}),
+    ...(dependencies.stitchAssetsProvider
+      ? { stitchAssetsProvider: dependencies.stitchAssetsProvider }
+      : {})
   });
 }

@@ -33,6 +33,9 @@ This document defines the public Zendio boundary for trial packaging, capability
 - `src/components/trial-notice.ts` remains a retained facade and is not delete-approved.
 - `src/shared/capabilities/capabilityPolicy.ts` is a neutral facade over the production `SessionDraftStoragePolicy` normalizer. The public contract contains retention limits, draft technical caps, and video screenshot cache caps; it does not define a separate tier source of truth.
 - Public Free defaults remain `48h` retention, `5` restorable page identities, `20` items per page, `100` draft entries, `512 KiB` per draft envelope, `100` screenshot cache entries globally, `50` per page, and `1 MiB` per screenshot.
+- Public content startup accepts a generic restore policy provider through `src/content/runtime/contentRuntimeBootstrap.ts`. `src/content/index.ts` only performs public auto-start with `defaultRestoreCapabilityPolicyProvider`.
+- Public background startup accepts the same generic provider and passes its `videoScreenshotCache` snapshot to the runtime message listener.
+- Options runtime and app bootstraps accept an explicit Stitch assets provider. The public default provider imports `productionStitchAssets`; `__AIIINOB_TEST_STITCH_ASSETS__` remains a test fallback inside shell mounting only.
 
 ## Private-Owner Only Decisions
 
