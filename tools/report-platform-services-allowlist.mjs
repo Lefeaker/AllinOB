@@ -5,7 +5,7 @@ const root = process.cwd();
 const targetDir = join(root, 'src');
 const allowlist = new Set([
   'src/background/index.ts',
-  'src/content/index.ts',
+  'src/content/runtime/contentRuntimeBootstrap.ts',
   'src/onboarding/index.ts',
   'src/options/index.ts',
   'src/platform/services.ts'

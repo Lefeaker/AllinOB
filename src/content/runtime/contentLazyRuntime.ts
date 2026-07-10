@@ -14,6 +14,7 @@ import type {
 } from '../clipper/services/selectionController';
 import type { SupportProgressReporter } from './supportProgress';
 import type { SessionDraftStoragePolicy } from '../sessionDrafts';
+import { selectLazySessionPolicyDependencies } from './contentLazySessionPolicy';
 
 interface SupportPromptLike {
   show(options?: unknown): Promise<void> | void;
@@ -54,26 +55,23 @@ type LoadLocalVaultPermissionPrompt = () => Promise<
   Pick<LocalVaultPermissionPromptModule, 'createLocalVaultPermissionPrompt'>
 >;
 
-const VIDEO_PROMPT_HOST_PATTERNS = [
-  /(^|\.)youtube\.com$/i,
-  /^youtu\.be$/i,
-  /(^|\.)bilibili\.com$/i
-] as const;
+function createLazyValue<T>(load: () => Promise<T>): () => Promise<T> {
+  let valuePromise: Promise<T> | null = null;
+  return () => (valuePromise ??= load());
+}
 
 export function isVideoPromptCandidateUrl(href: string): boolean {
   try {
     const url = new URL(href);
-    if (!VIDEO_PROMPT_HOST_PATTERNS.some((pattern) => pattern.test(url.hostname))) {
-      return false;
+    const { hostname, pathname } = url;
+    if (hostname === 'youtu.be') {
+      return pathname.length > 1;
     }
-    if (url.hostname === 'youtu.be') {
-      return url.pathname.length > 1;
+    if (hostname === 'youtube.com' || hostname.endsWith('.youtube.com')) {
+      return pathname === '/watch' || pathname.startsWith('/shorts/');
     }
-    if (/(^|\.)youtube\.com$/i.test(url.hostname)) {
-      return url.pathname === '/watch' || url.pathname.startsWith('/shorts/');
-    }
-    if (/(^|\.)bilibili\.com$/i.test(url.hostname)) {
-      return url.pathname.startsWith('/video/') || url.pathname.startsWith('/bangumi/play/');
+    if (hostname === 'bilibili.com' || hostname.endsWith('.bilibili.com')) {
+      return pathname.startsWith('/video/') || pathname.startsWith('/bangumi/play/');
     }
     return false;
   } catch {
@@ -86,27 +84,18 @@ export function createVideoPromptOnDemandInitializer(loadRuntime: LoadVideoPromp
     if (!isVideoPromptCandidateUrl(href)) {
       return;
     }
-    const { initializeVideoPromptRuntime } = await loadRuntime();
-    await initializeVideoPromptRuntime(dependencies, href);
+    await (await loadRuntime()).initializeVideoPromptRuntime(dependencies, href);
   };
 }
 
 export function createLazySupportPrompt(document: Document): SupportPromptLike {
-  let promptPromise: Promise<SupportPromptLike> | null = null;
-
-  const loadPrompt = async (): Promise<SupportPromptLike> => {
-    if (!promptPromise) {
-      promptPromise = import('../ui/supportPrompt').then(({ SupportPrompt }) => {
-        return new SupportPrompt(document);
-      });
-    }
-    return promptPromise;
-  };
+  const loadPrompt = createLazyValue<SupportPromptLike>(() =>
+    import('../ui/supportPrompt').then(({ SupportPrompt }) => new SupportPrompt(document))
+  );
 
   return {
     async show(options?: unknown): Promise<void> {
-      const prompt = await loadPrompt();
-      await prompt.show(options as never);
+      await (await loadPrompt()).show(options as never);
     }
   };
 }
@@ -115,16 +104,17 @@ export function createLazyLocalVaultPermissionPrompt(
   dependencies: Pick<LazyRuntimeDependencies, 'document' | 'runtime'> & { window: Window },
   loadPrompt: LoadLocalVaultPermissionPrompt = () => import('./localVaultPermissionPrompt')
 ): LocalVaultPermissionPromptLike {
-  let promptPromise: Promise<LocalVaultPermissionPromptLike> | null = null;
+  const getPrompt = createLazyValue<LocalVaultPermissionPromptLike>(() =>
+    loadPrompt().then(({ createLocalVaultPermissionPrompt }) =>
+      createLocalVaultPermissionPrompt(dependencies)
+    )
+  );
 
   return {
     request(
       message: LocalVaultPermissionPromptMessage
     ): Promise<LocalVaultPermissionPromptResponse> {
-      promptPromise ??= loadPrompt().then(({ createLocalVaultPermissionPrompt }) =>
-        createLocalVaultPermissionPrompt(dependencies)
-      );
-      return promptPromise.then((prompt) => prompt.request(message));
+      return getPrompt().then((prompt) => prompt.request(message));
     }
   };
 }
@@ -134,51 +124,30 @@ export function createLazyReaderSessionFactory(
     promptGateway: ClipPromptGateway;
   }
 ): (doc: Document, url: string) => ReaderSessionAdapter {
-  let readerModulePromise: Promise<typeof import('../reader/readerLazyRuntime')> | null = null;
-
-  const loadModule = async () => {
-    if (!readerModulePromise) {
-      readerModulePromise = import('../reader/readerLazyRuntime');
-    }
-    return readerModulePromise;
-  };
+  const loadModule = createLazyValue(() => import('../reader/readerLazyRuntime'));
 
   return (doc: Document, url: string): ReaderSessionAdapter => {
-    let adapterPromise: Promise<ReaderSessionAdapter> | null = null;
-
-    const getAdapter = async (): Promise<ReaderSessionAdapter> => {
-      if (!adapterPromise) {
-        adapterPromise = loadModule().then(({ createReaderSessionAdapter }) =>
-          createReaderSessionAdapter(doc, url, {
-            optionsRepository: dependencies.optionsRepository,
-            storage: dependencies.storage,
-            messaging: dependencies.messaging as MessagingService,
-            runtime: dependencies.runtime,
-            promptGateway: dependencies.promptGateway,
-            ...(dependencies.sessionDraftStoragePolicy
-              ? { sessionDraftStoragePolicy: dependencies.sessionDraftStoragePolicy }
-              : {}),
-            ...(dependencies.getSessionDraftStoragePolicy
-              ? { getSessionDraftStoragePolicy: dependencies.getSessionDraftStoragePolicy }
-              : {}),
-            ...(dependencies.showSupportProgress
-              ? { showSupportProgress: dependencies.showSupportProgress }
-              : {})
-          })
-        );
-      }
-      return adapterPromise;
-    };
+    const getAdapter = createLazyValue<ReaderSessionAdapter>(() =>
+      loadModule().then(({ createReaderSessionAdapter }) =>
+        createReaderSessionAdapter(doc, url, {
+          optionsRepository: dependencies.optionsRepository,
+          storage: dependencies.storage,
+          messaging: dependencies.messaging as MessagingService,
+          runtime: dependencies.runtime,
+          promptGateway: dependencies.promptGateway,
+          ...selectLazySessionPolicyDependencies(dependencies)
+        })
+      )
+    );
 
     return {
       async start(initialHighlight) {
-        const adapter = await getAdapter();
-        await adapter.start(initialHighlight);
+        await (await getAdapter()).start(initialHighlight);
       },
       ingestExternalHighlight(range, selectedHtml, selectedText, comment) {
-        void getAdapter().then((adapter) => {
-          adapter.ingestExternalHighlight(range, selectedHtml, selectedText, comment);
-        });
+        void getAdapter().then((adapter) =>
+          adapter.ingestExternalHighlight(range, selectedHtml, selectedText, comment)
+        );
       }
     };
   };
@@ -187,50 +156,29 @@ export function createLazyReaderSessionFactory(
 export function createLazyVideoSessionFactory(
   dependencies: LazyRuntimeDependencies
 ): (doc: Document) => VideoSessionAdapter {
-  let videoModulePromise: Promise<typeof import('../video/videoLazyRuntime')> | null = null;
-
-  const loadModule = async () => {
-    if (!videoModulePromise) {
-      videoModulePromise = import('../video/videoLazyRuntime');
-    }
-    return videoModulePromise;
-  };
+  const loadModule = createLazyValue(() => import('../video/videoLazyRuntime'));
 
   return (doc: Document): VideoSessionAdapter => {
-    let adapterPromise: Promise<VideoSessionAdapter> | null = null;
-
-    const getAdapter = async (): Promise<VideoSessionAdapter> => {
-      if (!adapterPromise) {
-        adapterPromise = loadModule().then(({ createVideoSessionAdapter }) =>
-          createVideoSessionAdapter(doc, {
-            optionsRepository: dependencies.optionsRepository,
-            storage: dependencies.storage,
-            runtime: dependencies.runtime,
-            messaging: dependencies.messaging,
-            ...(dependencies.sessionDraftStoragePolicy
-              ? { sessionDraftStoragePolicy: dependencies.sessionDraftStoragePolicy }
-              : {}),
-            ...(dependencies.getSessionDraftStoragePolicy
-              ? { getSessionDraftStoragePolicy: dependencies.getSessionDraftStoragePolicy }
-              : {}),
-            ...(dependencies.showSupportProgress
-              ? { showSupportProgress: dependencies.showSupportProgress }
-              : {})
-          })
-        );
-      }
-      return adapterPromise;
-    };
+    const getAdapter = createLazyValue<VideoSessionAdapter>(() =>
+      loadModule().then(({ createVideoSessionAdapter }) =>
+        createVideoSessionAdapter(doc, {
+          optionsRepository: dependencies.optionsRepository,
+          storage: dependencies.storage,
+          runtime: dependencies.runtime,
+          messaging: dependencies.messaging,
+          ...selectLazySessionPolicyDependencies(dependencies)
+        })
+      )
+    );
 
     return {
       async start() {
-        const adapter = await getAdapter();
-        await adapter.start();
+        await (await getAdapter()).start();
       },
       ingestTextCapture(selectedHtml, selectedText, comment, selectionRange) {
-        void getAdapter().then((adapter) => {
-          adapter.ingestTextCapture(selectedHtml, selectedText, comment, selectionRange);
-        });
+        void getAdapter().then((adapter) =>
+          adapter.ingestTextCapture(selectedHtml, selectedText, comment, selectionRange)
+        );
       }
     };
   };
@@ -243,17 +191,11 @@ export const initializeVideoPromptOnDemand = createVideoPromptOnDemandInitialize
 export function createLazyExtractorRegistry(
   optionsRepository: IOptionsRepository
 ): ExtractorRegistryApi {
-  let registryPromise: Promise<ExtractorRegistryApi> | null = null;
-
-  const loadRegistry = async (): Promise<ExtractorRegistryApi> => {
-    if (!registryPromise) {
-      registryPromise = import('../extractors/registry').then(
-        ({ createDefaultExtractorRegistry }) =>
-          createDefaultExtractorRegistry({ optionsRepository })
-      );
-    }
-    return registryPromise;
-  };
+  const loadRegistry = createLazyValue<ExtractorRegistryApi>(() =>
+    import('../extractors/registry').then(({ createDefaultExtractorRegistry }) =>
+      createDefaultExtractorRegistry({ optionsRepository })
+    )
+  );
 
   return {
     register(source) {

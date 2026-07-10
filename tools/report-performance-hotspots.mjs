@@ -89,6 +89,9 @@ const MAX_LINE_BUDGETS = new Map([
   // 2026-06-17 video screenshot cache P09: background-owned IndexedDB blob store
   // keeps screenshot bytes outside storage.local and owns the DOM IDB facade.
   ['src/background/services/videoScreenshotCacheIndexedDbStore.ts', 331],
+  // 2026-07-10 P11: live policy discrimination and repository lifecycle moved
+  // behind a focused runtime; keep the service below the discovery threshold.
+  ['src/background/services/videoScreenshotCacheService.ts', 250],
   // 2026-06-17 video screenshot cache main integration: draft screenshot restore,
   // terminal cleanup, and best-effort cache maintenance stay in a focused helper.
   ['src/content/video/videoSessionDraftScreenshotCache.ts', 251],
@@ -163,7 +166,9 @@ const MAX_LINE_BUDGETS = new Map([
   ['src/background/llm/classifier.ts', 262],
   // 2026-06-13 final combined integration: runtime messages own the visible-tab
   // screenshot request boundary used by video export preparation.
-  ['src/background/listeners/runtimeMessages.ts', 374],
+  // 2026-07-10 P11: the live screenshot policy input remains a one-line
+  // composition-root seam after the shared input type extraction.
+  ['src/background/listeners/runtimeMessages.ts', 376],
   ['src/background/services/usageStats.ts', 266],
   ['src/background/application/videoScreenshotAttachmentPlanner.ts', 269],
   ['src/third_party/ai-chat-exporter/platforms/tongyi.ts', 274],
@@ -189,7 +194,9 @@ const MAX_LINE_BUDGETS = new Map([
   // 2026-06-19 Options YAML editor stabilization: row aggregation, editable
   // domain override cells, and scroll-target ownership stay in this row model.
   ['src/options/yaml-config-editor/rowModel.ts', 269],
-  ['src/options/app/bootstrap.ts', 251],
+  // 2026-07-10 P11: owner action handlers are explicitly threaded from the
+  // public bootstrap into the production shell and are guarded by unit tests.
+  ['src/options/app/bootstrap.ts', 258],
   ['src/options/stitch/schema/resources/onboarding.ts', 251],
   // 2026-06-20 onboarding closeout: Chrome/Firefox first-run setup guidance
   // keeps Local Folder and REST fallback instructions centralized here.

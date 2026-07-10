@@ -16,10 +16,9 @@ import {
 } from './sessionDraftSchemas';
 import {
   getSessionDraftEffectiveExpiresAt,
-  normalizeSessionDraftRetentionPolicy,
   pruneSessionDraftIndexEntriesForRetentionPolicy
 } from './sessionDraftRetentionPolicy';
-import { createSessionDraftStoragePolicy } from './sessionDraftStoragePolicy';
+import { resolveSessionDraftRepositoryStoragePolicy } from './sessionDraftRepositoryPolicy';
 import {
   getCurrentSessionDraftOwnerContext,
   getSessionDraftEnvelopeOwnerContext,
@@ -56,15 +55,8 @@ export function createSessionDraftRepository(
   area: StorageAreaService,
   options: SessionDraftRepositoryOptions = {}
 ): SessionDraftRepository {
-  const retentionPolicy = normalizeSessionDraftRetentionPolicy(
-    options.storagePolicy?.retentionPolicy ?? options.retentionPolicy,
-    options.ttlMs
-  );
-  const storagePolicy = createSessionDraftStoragePolicy({
-    retentionPolicy,
-    maxDraftEntries: options.maxEntries ?? options.storagePolicy?.maxDraftEntries,
-    maxEnvelopeBytes: options.maxEnvelopeBytes ?? options.storagePolicy?.maxEnvelopeBytes
-  });
+  const storagePolicy = resolveSessionDraftRepositoryStoragePolicy(options);
+  const retentionPolicy = storagePolicy.retentionPolicy;
   const maxEntries = storagePolicy.maxDraftEntries;
   const maxEnvelopeBytes = storagePolicy.maxEnvelopeBytes;
   const resolveOwnerContext = options.resolveOwnerContext ?? getCurrentSessionDraftOwnerContext;

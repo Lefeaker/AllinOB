@@ -23,6 +23,11 @@ import {
   updateDraftPath
 } from './productionStitchShellState';
 import type { ProductionStitchWidgetHost } from './productionStitchWidgetHost';
+import {
+  mergeProductionStitchActionHandlers,
+  readActionEventButton,
+  sanitizeProductionStitchActionId
+} from './productionStitchActionHandlers';
 
 interface ProductionStitchShellActionRuntimeOptions {
   mountRoot: HTMLElement;
@@ -115,20 +120,6 @@ const RESOURCE_SECTION_MAP: Record<string, AnalyticsSection> = {
   'plugin-setup': 'onboarding'
 };
 
-function eventButton(value: unknown): HTMLButtonElement | null {
-  return value instanceof Event && value.currentTarget instanceof HTMLButtonElement
-    ? value.currentTarget
-    : null;
-}
-
-function sanitizeActionId(actionId: string): string {
-  return actionId
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '_')
-    .replace(/^_+|_+$/g, '')
-    .slice(0, 64);
-}
-
 function createProductionOptionsTelemetry(persistence: ProductionStitchPersistence) {
   const trackablePersistence = persistence as TrackablePersistence;
 
@@ -153,7 +144,7 @@ function createProductionOptionsTelemetry(persistence: ProductionStitchPersisten
   }
 
   function trackResourceOpen(resourceId: string): void {
-    const action = sanitizeActionId('resource:open');
+    const action = sanitizeProductionStitchActionId('resource:open');
     const section = RESOURCE_SECTION_MAP[resourceId];
     void send(
       createAnalyticsEventMessage('options_action_completed', {
@@ -170,7 +161,7 @@ function createProductionOptionsTelemetry(persistence: ProductionStitchPersisten
     }
     void send(
       createAnalyticsEventMessage('options_action_completed', {
-        action: sanitizeActionId(actionId),
+        action: sanitizeProductionStitchActionId(actionId),
         outcome: 'completed',
         section: ACTION_SECTION_MAP[actionId]
       })
@@ -183,7 +174,7 @@ function createProductionOptionsTelemetry(persistence: ProductionStitchPersisten
   ): void {
     void send(
       createAnalyticsEventMessage('options_action_completed', {
-        action: sanitizeActionId(actionId),
+        action: sanitizeProductionStitchActionId(actionId),
         outcome,
         section: 'advanced'
       })
@@ -272,7 +263,7 @@ export function createProductionStitchShellActionRuntime(
     collectDraftWithWidgets: () => widgetHost.collectDraftWithWidgets(),
     copyConfigurationToClipboard: (button) => persistence.copyConfigurationToClipboard(button),
     currentDomainEntries: () => options.currentDomainEntries(),
-    eventButton,
+    eventButton: readActionEventButton,
     ensureVaultRouter: () => storageController.ensureVaultRouter(),
     importConfigurationWithStatus: (button) => persistence.importConfigurationWithStatus(button),
     markWidgetDirty: (key) => widgetHost.markDirty(key),
@@ -338,7 +329,7 @@ export function createProductionStitchShellActionRuntime(
   const actionRuntime = createActionRuntime<PreviewStoreState, PreviewContent>({
     getContext: () => options.createSchemaContext(),
     mutate: (mutator, mutationOptions) => options.mutate(mutator, mutationOptions),
-    handlers: mergeActionHandlers(productionHandlers, additionalActionHandlers),
+    handlers: mergeProductionStitchActionHandlers(productionHandlers, additionalActionHandlers),
     onUnhandledAction: () => {
       controller.scheduleAutoSave(() => options.getDraft());
     }
@@ -357,27 +348,4 @@ export function createProductionStitchShellActionRuntime(
   }
 
   return { dispatch };
-}
-
-function mergeActionHandlers(
-  productionHandlers: ActionRegistry<PreviewStoreState, PreviewContent>,
-  additionalActionHandlers: ActionRegistry<PreviewStoreState, PreviewContent> | undefined
-): ActionRegistry<PreviewStoreState, PreviewContent> {
-  if (!additionalActionHandlers) {
-    return productionHandlers;
-  }
-
-  const merged: ActionRegistry<PreviewStoreState, PreviewContent> = {
-    ...productionHandlers
-  };
-
-  for (const [actionId, handler] of Object.entries(additionalActionHandlers)) {
-    if (Object.prototype.hasOwnProperty.call(merged, actionId)) {
-      console.warn(`[Options] Ignoring additional Stitch action handler for "${actionId}".`);
-      continue;
-    }
-    merged[actionId] = handler;
-  }
-
-  return merged;
 }

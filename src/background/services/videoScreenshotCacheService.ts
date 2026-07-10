@@ -3,11 +3,7 @@ import {
   serializedAttachmentContentToBlob
 } from '../../shared/attachments/clipAttachmentBinary';
 import type { StorageAreaService } from '../../platform/interfaces/storage';
-import type { RestoreCapabilityPolicyProvider } from '../../shared/capabilities/capabilityPolicy';
-import {
-  createVideoScreenshotCacheRepository,
-  type VideoScreenshotCacheRepositoryOptions
-} from '../../content/video/videoScreenshotCacheRepository';
+import type { VideoScreenshotCacheRepository } from '../../content/video/videoScreenshotCacheRepository';
 import {
   normalizeVideoScreenshotCacheMessage,
   type SerializedVideoScreenshotCacheScreenshot,
@@ -16,10 +12,11 @@ import {
 } from '../../content/video/videoScreenshotCacheMessages';
 import type { VideoScreenshotCacheBlobStore } from '../../content/video/videoScreenshotCacheStore';
 import type { VideoCaptureScreenshot } from '../../content/video/types';
+import type { VideoScreenshotCacheIndexedDbStoreOptions } from './videoScreenshotCacheIndexedDbStore';
 import {
-  createVideoScreenshotCacheIndexedDbStore,
-  type VideoScreenshotCacheIndexedDbStoreOptions
-} from './videoScreenshotCacheIndexedDbStore';
+  createVideoScreenshotCachePolicyRuntime,
+  type BackgroundVideoScreenshotCachePolicyInput
+} from './videoScreenshotCachePolicyRuntime';
 
 export interface BackgroundVideoScreenshotCacheStorage {
   local: StorageAreaService;
@@ -33,10 +30,6 @@ export interface BackgroundVideoScreenshotCacheHandlerDependencies {
 export type BackgroundVideoScreenshotCacheHandler = (
   message: unknown
 ) => Promise<VideoScreenshotCacheResponse | undefined>;
-
-type BackgroundVideoScreenshotCachePolicyInput =
-  | VideoScreenshotCacheRepositoryOptions
-  | RestoreCapabilityPolicyProvider;
 
 function errorMessage(error: Error | string): string {
   return error instanceof Error ? error.message : error;
@@ -119,42 +112,12 @@ export function createBackgroundVideoScreenshotCacheHandler(
   policyInput: BackgroundVideoScreenshotCachePolicyInput = {},
   dependencies: BackgroundVideoScreenshotCacheHandlerDependencies = {}
 ): BackgroundVideoScreenshotCacheHandler {
-  let repository: ReturnType<typeof createVideoScreenshotCacheRepository> | null = null;
-  let repositoryPolicyKey: string | null = null;
   let queue: Promise<void> = Promise.resolve();
-
-  if (isRestoreCapabilityPolicyProvider(policyInput)) {
-    policyInput.subscribePolicyChanges?.(() => {
-      repository = null;
-      repositoryPolicyKey = null;
-    });
-  }
-
-  function readCacheOptions(): VideoScreenshotCacheRepositoryOptions {
-    return isRestoreCapabilityPolicyProvider(policyInput)
-      ? policyInput.getCurrentPolicy().videoScreenshotCache
-      : policyInput;
-  }
-
-  function getRepository(options: VideoScreenshotCacheRepositoryOptions) {
-    const policyKey = createCachePolicyKey(options);
-    if (!repository || repositoryPolicyKey !== policyKey) {
-      repository = createVideoScreenshotCacheRepository(
-        {
-          blobStore:
-            dependencies.blobStore ??
-            createVideoScreenshotCacheIndexedDbStore({
-              indexedDb: dependencies.indexedDb,
-              maxContentBytes: options.maxContentBytes
-            }),
-          legacyArea: storage.local
-        },
-        options
-      );
-      repositoryPolicyKey = policyKey;
-    }
-    return repository;
-  }
+  const policyRuntime = createVideoScreenshotCachePolicyRuntime(policyInput, {
+    legacyArea: storage.local,
+    ...(dependencies.blobStore ? { blobStore: dependencies.blobStore } : {}),
+    ...(dependencies.indexedDb ? { indexedDb: dependencies.indexedDb } : {})
+  });
 
   function enqueue<Result>(operation: () => Promise<Result>): Promise<Result> {
     const run = queue.then(operation, operation);
@@ -167,7 +130,7 @@ export function createBackgroundVideoScreenshotCacheHandler(
 
   async function handleSave(
     message: Extract<VideoScreenshotCacheMessage, { operation: 'save' }>,
-    cacheRepository: ReturnType<typeof createVideoScreenshotCacheRepository>
+    cacheRepository: VideoScreenshotCacheRepository
   ): Promise<VideoScreenshotCacheResponse> {
     let screenshot: VideoCaptureScreenshot;
     try {
@@ -195,7 +158,7 @@ export function createBackgroundVideoScreenshotCacheHandler(
 
   async function handleLoad(
     message: Extract<VideoScreenshotCacheMessage, { operation: 'load' }>,
-    cacheRepository: ReturnType<typeof createVideoScreenshotCacheRepository>
+    cacheRepository: VideoScreenshotCacheRepository
   ): Promise<VideoScreenshotCacheResponse> {
     let screenshot: VideoCaptureScreenshot | null;
     try {
@@ -221,7 +184,7 @@ export function createBackgroundVideoScreenshotCacheHandler(
 
   async function handleMessage(
     message: VideoScreenshotCacheMessage,
-    cacheRepository: ReturnType<typeof createVideoScreenshotCacheRepository>
+    cacheRepository: VideoScreenshotCacheRepository
   ): Promise<VideoScreenshotCacheResponse> {
     switch (message.operation) {
       case 'save':
@@ -244,7 +207,7 @@ export function createBackgroundVideoScreenshotCacheHandler(
   }
 
   return async (rawMessage) => {
-    const options = readCacheOptions();
+    const options = policyRuntime.getCurrentOptions();
     const message = normalizeVideoScreenshotCacheMessage(rawMessage, {
       maxContentBytes: options.maxContentBytes
     });
@@ -253,24 +216,9 @@ export function createBackgroundVideoScreenshotCacheHandler(
     }
 
     try {
-      return await enqueue(() => handleMessage(message, getRepository(options)));
+      return await enqueue(() => handleMessage(message, policyRuntime.getRepository(options)));
     } catch (error) {
       return toMessageError(error instanceof Error ? error : String(error));
     }
   };
-}
-
-function isRestoreCapabilityPolicyProvider(
-  value: BackgroundVideoScreenshotCachePolicyInput
-): value is RestoreCapabilityPolicyProvider {
-  return typeof (value as RestoreCapabilityPolicyProvider).getCurrentPolicy === 'function';
-}
-
-function createCachePolicyKey(options: VideoScreenshotCacheRepositoryOptions): string {
-  return [
-    options.ttlMs ?? '',
-    options.maxGlobalEntries ?? '',
-    options.maxPageEntries ?? '',
-    options.maxContentBytes ?? ''
-  ].join(':');
 }

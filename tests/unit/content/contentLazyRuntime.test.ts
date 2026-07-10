@@ -1,5 +1,10 @@
+/* @vitest-environment jsdom */
+
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { createSessionDraftStoragePolicy } from '@content/sessionDrafts';
+import { DEFAULT_OPTIONS } from '@shared/config/defaultOptions';
+import { createMemoryStorageArea } from '@platform/preview/memoryStorage';
+import { createPreviewPlatformServices } from '@platform/preview/services';
 import {
   createLazyReaderSessionFactory,
   createLazyVideoSessionFactory,
@@ -8,9 +13,17 @@ import {
   isVideoPromptCandidateUrl
 } from '../../../src/content/runtime/contentLazyRuntime';
 import type { SessionDraftStoragePolicy } from '../../../src/content/sessionDrafts';
+import type { ClipPromptGateway } from '../../../src/content/clipper/application/clipPromptGateway';
+import type { RuntimeService } from '../../../src/platform/interfaces/runtime';
+import type { StorageService } from '../../../src/platform/interfaces/storage';
+import type { IOptionsRepository } from '../../../src/shared/repositories/IOptionsRepository';
 
-const createReaderSessionAdapterMock = vi.hoisted(() => vi.fn());
-const createVideoSessionAdapterMock = vi.hoisted(() => vi.fn());
+type CreateReaderSessionAdapter =
+  typeof import('../../../src/content/reader/readerLazyRuntime').createReaderSessionAdapter;
+type CreateVideoSessionAdapter =
+  typeof import('../../../src/content/video/videoLazyRuntime').createVideoSessionAdapter;
+const createReaderSessionAdapterMock = vi.hoisted(() => vi.fn<CreateReaderSessionAdapter>());
+const createVideoSessionAdapterMock = vi.hoisted(() => vi.fn<CreateVideoSessionAdapter>());
 
 vi.mock('../../../src/content/reader/readerLazyRuntime', () => ({
   createReaderSessionAdapter: createReaderSessionAdapterMock
@@ -20,11 +33,36 @@ vi.mock('../../../src/content/video/videoLazyRuntime', () => ({
   createVideoSessionAdapter: createVideoSessionAdapterMock
 }));
 
-function createDeps() {
+function createOptionsRepository(): IOptionsRepository {
   return {
-    optionsRepository: {} as never,
-    storage: {} as never,
-    runtime: {} as never
+    get: () => Promise.resolve(DEFAULT_OPTIONS),
+    set: () => Promise.resolve(),
+    onChange: () => () => undefined
+  };
+}
+
+function createStorage(): StorageService {
+  return {
+    local: createMemoryStorageArea(),
+    sync: createMemoryStorageArea()
+  };
+}
+
+function createRuntime(): RuntimeService {
+  return {
+    getURL: (path) => `chrome-extension://test/${path}`,
+    getBrowserTarget: () => 'chrome',
+    openOptionsPage: () => Promise.resolve(),
+    onInstalled: () => () => undefined,
+    onStartup: () => () => undefined
+  };
+}
+
+function createDeps(): Parameters<ReturnType<typeof createVideoPromptOnDemandInitializer>>[0] {
+  return {
+    optionsRepository: createOptionsRepository(),
+    storage: createStorage(),
+    runtime: createRuntime()
   };
 }
 
@@ -39,13 +77,16 @@ describe('contentLazyRuntime video prompt gating', () => {
     'https://x.com/OpenAI',
     'https://www.reddit.com/r/programming/',
     'https://developer.mozilla.org/en-US/docs/Web/JavaScript',
-    'https://mp.weixin.qq.com/s/U-5PG2mF3Y5oJGea1HsD-Q'
+    'https://mp.weixin.qq.com/s/U-5PG2mF3Y5oJGea1HsD-Q',
+    'https://notyoutube.com/watch?v=lookalike',
+    'https://notbilibili.com/video/BV1lookalike'
   ])('does not treat %s as a video prompt candidate', (url) => {
     expect(isVideoPromptCandidateUrl(url)).toBe(false);
   });
 
   it.each([
     'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
+    'https://music.youtube.com/watch?v=dQw4w9WgXcQ',
     'https://youtu.be/dQw4w9WgXcQ',
     'https://www.bilibili.com/video/BV1abc123456/'
   ])('treats %s as a video prompt candidate', (url) => {
@@ -81,11 +122,11 @@ describe('contentLazyRuntime video prompt gating', () => {
     const createLocalVaultPermissionPrompt = vi.fn(() => ({ request }));
     const loadPrompt = vi.fn().mockResolvedValue({ createLocalVaultPermissionPrompt });
     const dependencies = {
-      document: {} as Document,
-      window: {} as Window,
-      runtime: { getURL: vi.fn((path: string) => `chrome-extension://test/${path}`) }
+      document,
+      window,
+      runtime: createRuntime()
     };
-    const prompt = createLazyLocalVaultPermissionPrompt(dependencies as never, loadPrompt);
+    const prompt = createLazyLocalVaultPermissionPrompt(dependencies, loadPrompt);
 
     expect(loadPrompt).not.toHaveBeenCalled();
 
@@ -140,22 +181,26 @@ describe('contentLazyRuntime video prompt gating', () => {
         ingestTextCapture: vi.fn()
       };
     });
-    const sharedDependencies = {
-      document: {} as Document,
-      optionsRepository: {} as never,
-      storage: {} as never,
-      messaging: {} as never,
-      runtime: {} as never,
+    const messaging = createPreviewPlatformServices().messaging;
+    const sharedDependencies: Parameters<typeof createLazyVideoSessionFactory>[0] = {
+      document,
+      optionsRepository: createOptionsRepository(),
+      storage: createStorage(),
+      messaging,
+      runtime: createRuntime(),
       getSessionDraftStoragePolicy: () => currentPolicy
+    };
+    const promptGateway: ClipPromptGateway = {
+      requestSelectionAction: () => Promise.resolve({ action: 'cancel', comment: '' })
     };
     const createReaderSession = createLazyReaderSessionFactory({
       ...sharedDependencies,
-      promptGateway: {} as never
+      promptGateway
     });
     const createVideoSession = createLazyVideoSessionFactory(sharedDependencies);
 
-    const firstReader = createReaderSession({} as Document, 'https://example.com/one');
-    const firstVideo = createVideoSession({} as Document);
+    const firstReader = createReaderSession(document, 'https://example.com/one');
+    const firstVideo = createVideoSession(document);
     await firstReader.start();
     await firstVideo.start();
 
@@ -165,8 +210,8 @@ describe('contentLazyRuntime video prompt gating', () => {
     expect(observedReaderPolicies).toEqual([firstPolicy]);
     expect(observedVideoPolicies).toEqual([firstPolicy]);
 
-    await createReaderSession({} as Document, 'https://example.com/two').start();
-    await createVideoSession({} as Document).start();
+    await createReaderSession(document, 'https://example.com/two').start();
+    await createVideoSession(document).start();
 
     expect(observedReaderPolicies).toEqual([firstPolicy, secondPolicy]);
     expect(observedVideoPolicies).toEqual([firstPolicy, secondPolicy]);

@@ -50,9 +50,24 @@ const createLazyLocalVaultPermissionPromptMock = vi.hoisted(() =>
 );
 const readerAdapterFactoryMock = vi.hoisted(() => vi.fn());
 const videoAdapterFactoryMock = vi.hoisted(() => vi.fn());
-const createLazyReaderSessionFactoryMock = vi.hoisted(() => vi.fn(() => readerAdapterFactoryMock));
-const createLazyVideoSessionFactoryMock = vi.hoisted(() => vi.fn(() => videoAdapterFactoryMock));
-const initializeVideoPromptOnDemandMock = vi.hoisted(() => vi.fn(() => Promise.resolve(undefined)));
+type RestorePolicyDependencyProbe = {
+  getSessionDraftStoragePolicy?: () => RestoreCapabilityPolicy;
+};
+const createLazyReaderSessionFactoryMock = vi.hoisted(() =>
+  vi.fn<(_dependencies: RestorePolicyDependencyProbe) => typeof readerAdapterFactoryMock>(
+    () => readerAdapterFactoryMock
+  )
+);
+const createLazyVideoSessionFactoryMock = vi.hoisted(() =>
+  vi.fn<(_dependencies: RestorePolicyDependencyProbe) => typeof videoAdapterFactoryMock>(
+    () => videoAdapterFactoryMock
+  )
+);
+const initializeVideoPromptOnDemandMock = vi.hoisted(() =>
+  vi.fn<(_dependencies: RestorePolicyDependencyProbe, _href: string) => Promise<void>>(() =>
+    Promise.resolve(undefined)
+  )
+);
 const createLazyExtractorRegistryMock = vi.hoisted(() =>
   vi.fn(() => ({ register: vi.fn(), extract: vi.fn(), list: vi.fn() }))
 );
@@ -71,21 +86,9 @@ const createContentRuntimeMock = vi.hoisted(() =>
   vi.fn(() => ({ start: runtimeStartMock, stop: runtimeStopMock }))
 );
 const createContentMessageRouterMock = vi.hoisted(() => vi.fn(() => ({ route: vi.fn() })));
-const startLazyDraftRestoreMock = vi.hoisted(() => vi.fn(() => vi.fn()));
-
-type RestorePolicyDependencyProbe = {
-  getSessionDraftStoragePolicy?: () => RestoreCapabilityPolicy;
-};
-
-function readFirstMockArgument<T>(mock: { mock: { calls: unknown } }): T | undefined {
-  const calls = mock.mock.calls as Array<[T]>;
-  return calls[0]?.[0];
-}
-
-function readSecondMockArgument<T>(mock: { mock: { calls: unknown } }): T | undefined {
-  const calls = mock.mock.calls as Array<[unknown, T]>;
-  return calls[0]?.[1];
-}
+type StartLazyDraftRestore =
+  typeof import('../../../src/content/runtime/sessionDraftAutoRestoreBootstrap').startLazyDraftRestore;
+const startLazyDraftRestoreMock = vi.hoisted(() => vi.fn<StartLazyDraftRestore>(() => vi.fn()));
 
 vi.mock('../../../src/platform', () => ({
   getPlatformServices: getPlatformServicesMock
@@ -185,17 +188,10 @@ describe('content bootstrap provider composition', () => {
       await import('../../../src/content/runtime/contentRuntimeBootstrap');
     initializeClipperRuntime({ restoreStoragePolicyProvider });
 
-    const readerDependencies = readFirstMockArgument<RestorePolicyDependencyProbe>(
-      createLazyReaderSessionFactoryMock
-    );
-    const videoDependencies = readFirstMockArgument<RestorePolicyDependencyProbe>(
-      createLazyVideoSessionFactoryMock
-    );
-    const promptDependencies = readFirstMockArgument<RestorePolicyDependencyProbe>(
-      initializeVideoPromptOnDemandMock
-    );
-    const autoRestoreOptions =
-      readSecondMockArgument<RestorePolicyDependencyProbe>(startLazyDraftRestoreMock);
+    const readerDependencies = createLazyReaderSessionFactoryMock.mock.calls[0]?.[0];
+    const videoDependencies = createLazyVideoSessionFactoryMock.mock.calls[0]?.[0];
+    const promptDependencies = initializeVideoPromptOnDemandMock.mock.calls[0]?.[0];
+    const autoRestoreOptions = startLazyDraftRestoreMock.mock.calls[0]?.[1];
 
     expect(readerDependencies?.getSessionDraftStoragePolicy?.()).toBe(restorePolicy);
     expect(videoDependencies?.getSessionDraftStoragePolicy?.()).toBe(restorePolicy);
@@ -226,26 +222,12 @@ describe('content bootstrap provider composition', () => {
 
     await import('../../../src/content/index');
 
-    expect(createLazyReaderSessionFactoryMock).toHaveBeenCalledWith(
-      expect.objectContaining({
-        getSessionDraftStoragePolicy: expect.any(Function)
-      })
-    );
-    expect(createLazyVideoSessionFactoryMock).toHaveBeenCalledWith(
-      expect.objectContaining({
-        getSessionDraftStoragePolicy: expect.any(Function)
-      })
-    );
-    expect(startLazyDraftRestoreMock).toHaveBeenCalledWith(
-      expect.any(Function),
-      expect.objectContaining({
-        getSessionDraftStoragePolicy: expect.any(Function)
-      }),
-      expect.any(Function)
-    );
-    const readerDependencies = readFirstMockArgument<RestorePolicyDependencyProbe>(
-      createLazyReaderSessionFactoryMock
-    );
+    const readerDependencies = createLazyReaderSessionFactoryMock.mock.calls[0]?.[0];
+    const videoDependencies = createLazyVideoSessionFactoryMock.mock.calls[0]?.[0];
+    const autoRestoreDependencies = startLazyDraftRestoreMock.mock.calls[0]?.[1];
+    expect(typeof readerDependencies?.getSessionDraftStoragePolicy).toBe('function');
+    expect(typeof videoDependencies?.getSessionDraftStoragePolicy).toBe('function');
+    expect(typeof autoRestoreDependencies?.getSessionDraftStoragePolicy).toBe('function');
     expect(readerDependencies?.getSessionDraftStoragePolicy?.()).toEqual(
       DEFAULT_RESTORE_CAPABILITY_POLICY
     );

@@ -378,6 +378,31 @@ describe('sessionDraftRepository', () => {
     ).rejects.toThrow('storage limit');
   });
 
+  it('applies a lone legacy entry override while preserving the default envelope cap', async () => {
+    const storage = createMemoryStorageArea();
+    const repository = createSessionDraftRepository(storage, { maxEntries: 1 });
+    const first = createEnvelope('reader', {
+      draftId: 'legacy-entry-first',
+      pageUrl: 'https://example.com/post/legacy-entry-first',
+      updatedAt: BASE_TIME + 20,
+      payload: { commentDrafts: { note: 'x'.repeat(2_048) } }
+    });
+    const second = createEnvelope('reader', {
+      draftId: 'legacy-entry-second',
+      pageUrl: 'https://example.com/post/legacy-entry-second',
+      updatedAt: BASE_TIME + 21,
+      payload: { commentDrafts: { note: 'y'.repeat(2_048) } }
+    });
+
+    await repository.save(first);
+    await repository.save(second);
+
+    await expect(storage.get(createIndexEntry(first).key)).resolves.toBeUndefined();
+    await expect(storage.get(createIndexEntry(second).key)).resolves.toMatchObject({
+      draftId: 'legacy-entry-second'
+    });
+  });
+
   it('does not restore a stale envelope even when its index row still looks fresh', async () => {
     const now = BASE_TIME + 30 * DAY_MS;
     const stale = createEnvelope('reader', {

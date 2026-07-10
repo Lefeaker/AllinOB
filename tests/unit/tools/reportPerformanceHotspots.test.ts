@@ -1,10 +1,16 @@
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 
 describe('report-performance-hotspots', () => {
   const toolPath = resolve('tools/report-performance-hotspots.mjs');
+
+  it('registers the background screenshot cache service before it can become an unowned hotspot', () => {
+    expect(readFileSync(toolPath, 'utf8')).toContain(
+      "['src/background/services/videoScreenshotCacheService.ts',"
+    );
+  });
 
   function createFixtureRepo(files: Record<string, string>) {
     const root = mkdtempSync(join(tmpdir(), 'aiiinob-hotspots-'));

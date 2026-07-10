@@ -10,7 +10,7 @@ import {
   type VideoScreenshotCacheIndex,
   type VideoScreenshotCacheIndexEntry,
   type VideoScreenshotCacheRef
-} from './videoScreenshotCacheTypes';
+} from './videoScreenshotCacheContract';
 
 type Raw = Parameters<typeof isObjectRecord>[0];
 

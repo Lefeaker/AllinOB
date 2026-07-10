@@ -40,11 +40,8 @@ import {
   createBackgroundVideoScreenshotCacheHandler as createScreenshotCacheHandler,
   type BackgroundVideoScreenshotCacheHandler
 } from '../services/videoScreenshotCacheService';
-import {
-  defaultRestoreCapabilityPolicyProvider,
-  type RestoreCapabilityPolicyProvider
-} from '../../shared/capabilities/capabilityPolicy';
-import type { SessionDraftStoragePolicy } from '../../content/sessionDrafts';
+import type { BackgroundVideoScreenshotCachePolicyInput } from '../services/videoScreenshotCachePolicyRuntime';
+import { defaultRestoreCapabilityPolicyProvider } from '../../shared/capabilities/capabilityPolicy';
 import type { StorageService } from '../../platform/interfaces/storage';
 import {
   isGetTabContextMessage,
@@ -56,6 +53,7 @@ import {
 } from './runtimeMessageContracts';
 
 const INVALID_CLIP_PAYLOAD_ERROR = 'Invalid clip payload received.';
+
 function isRepositoryContentMessage(
   message: unknown,
   type: 'clip' | 'readingClip' | 'videoClip',
@@ -155,9 +153,7 @@ export function createRuntimeMessageListenerDependencies(
   tabs: Pick<TabsService, 'create' | 'get' | 'sendMessage' | 'captureVisibleTab'>,
   runtime: Pick<RuntimeService, 'getURL'>,
   storage: Pick<StorageService, 'local'>,
-  restoreStoragePolicyProvider:
-    | RestoreCapabilityPolicyProvider
-    | SessionDraftStoragePolicy['videoScreenshotCache'] = defaultRestoreCapabilityPolicyProvider
+  restoreStoragePolicyProvider: BackgroundVideoScreenshotCachePolicyInput = defaultRestoreCapabilityPolicyProvider
 ): RuntimeMessageListenerDependencies {
   return {
     messaging,

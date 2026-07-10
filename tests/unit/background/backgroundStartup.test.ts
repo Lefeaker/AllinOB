@@ -7,7 +7,11 @@ const configureBackgroundDependencyStorageMock = vi.hoisted(() => vi.fn());
 const bootstrapBackgroundDependenciesMock = vi.hoisted(() => vi.fn());
 const createContextMenuListenerDependenciesMock = vi.hoisted(() => vi.fn((deps) => deps));
 const registerContextMenuListenersMock = vi.hoisted(() => vi.fn());
-const createRuntimeMessageListenerDependenciesMock = vi.hoisted(() => vi.fn((...args) => args));
+type CreateRuntimeMessageListenerDependencies =
+  typeof import('../../../src/background/listeners/runtimeMessages').createRuntimeMessageListenerDependencies;
+const createRuntimeMessageListenerDependenciesMock = vi.hoisted(() =>
+  vi.fn<CreateRuntimeMessageListenerDependencies>()
+);
 const registerRuntimeMessageListenerMock = vi.hoisted(() => vi.fn());
 const ensureUsageStatsInitializedMock = vi.hoisted(() => vi.fn(() => Promise.resolve(undefined)));
 const resolveRepositoryMock = vi.hoisted(() => vi.fn(() => ({ onChange: vi.fn() })));
@@ -81,15 +85,15 @@ describe('backgroundStartup', () => {
       expect.objectContaining({ optionsRepository: expect.any(Object) })
     );
     expect(registerContextMenuListenersMock).toHaveBeenCalledTimes(1);
-    expect(createRuntimeMessageListenerDependenciesMock).toHaveBeenCalledWith(
+    const runtimeDependencyArgs = createRuntimeMessageListenerDependenciesMock.mock.calls[0];
+    expect(runtimeDependencyArgs?.slice(0, 4)).toEqual([
       deps.messaging,
       deps.tabs,
       deps.runtime,
-      deps.storage,
-      expect.objectContaining({
-        getCurrentPolicy: expect.any(Function)
-      })
-    );
+      deps.storage
+    ]);
+    const defaultPolicyInput = runtimeDependencyArgs?.[4];
+    expect(defaultPolicyInput && 'getCurrentPolicy' in defaultPolicyInput).toBe(true);
     expect(registerRuntimeMessageListenerMock).toHaveBeenCalledTimes(1);
     expect(ensureUsageStatsInitializedMock).toHaveBeenCalledTimes(1);
   });

@@ -270,6 +270,29 @@ describe('mountProductionStitchShell renderLifecycle', () => {
     );
   });
 
+  it('keeps built-in Stitch actions authoritative over additional owner handlers', () => {
+    const controller = createController();
+    const ownerOverride = vi.fn();
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    mountProductionStitchShell({
+      controller: asOptionsController(controller),
+      initialOptions: null,
+      messages: null,
+      language: 'en',
+      additionalActionHandlers: {
+        'routing:add': ownerOverride
+      }
+    });
+
+    findButton('Add Rule').click();
+
+    expect(ownerOverride).not.toHaveBeenCalled();
+    expect(warn).toHaveBeenCalledWith(
+      '[Options] Ignoring additional Stitch action handler for "routing:add".'
+    );
+    warn.mockRestore();
+  });
+
   it('prevents mouse button presses from moving the production Options scroller', async () => {
     const controller = createController();
     mountProductionStitchShell({
