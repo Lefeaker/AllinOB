@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   FREE_SESSION_DRAFT_MAX_RESTORABLE_PAGES,
   FREE_SESSION_DRAFT_RETENTION_MS,
+  SESSION_DRAFT_MAX_ENVELOPE_BYTES,
   createSessionDraftStoragePolicy
 } from '@content/sessionDrafts';
 import { createSessionDraftRepository } from '@content/sessionDrafts/sessionDraftRepository';
@@ -393,11 +394,24 @@ describe('sessionDraftRepository', () => {
       updatedAt: BASE_TIME + 21,
       payload: { commentDrafts: { note: 'y'.repeat(2_048) } }
     });
+    const oversized = createEnvelope('reader', {
+      draftId: 'legacy-entry-oversized',
+      pageUrl: 'https://example.com/post/legacy-entry-oversized',
+      updatedAt: BASE_TIME + 22,
+      payload: {
+        commentDrafts: { note: 'z'.repeat(SESSION_DRAFT_MAX_ENVELOPE_BYTES + 1) }
+      }
+    });
 
     await repository.save(first);
     await repository.save(second);
 
     await expect(storage.get(createIndexEntry(first).key)).resolves.toBeUndefined();
+    await expect(storage.get(createIndexEntry(second).key)).resolves.toMatchObject({
+      draftId: 'legacy-entry-second'
+    });
+    await expect(repository.save(oversized)).rejects.toThrow(/configured storage limit/i);
+    await expect(storage.get(createIndexEntry(oversized).key)).resolves.toBeUndefined();
     await expect(storage.get(createIndexEntry(second).key)).resolves.toMatchObject({
       draftId: 'legacy-entry-second'
     });
