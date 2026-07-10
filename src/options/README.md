@@ -23,6 +23,7 @@
 ### 0.1 目录与入口
 
 - `index.ts -> runtimeEntry.ts -> app/bootstrap.ts -> app/productionStitchShell.ts`：唯一正式入口，负责 repository 注册、I18n、Controller、Stitch Shell 初始化。
+- `app/optionsOverlayRuntimeState.ts`：可选、产品中立的运行时叠加状态端口；composition root 可注入只读快照，production shell 负责合并、订阅渲染与卸载清理，未注入时 Free 行为保持不变。
 - `stitch/*`：Stitch Secondary 共享 UI 包，production 以 `future/options-component-preview 2/index.html` 的原始参考运行结果为视觉真值；`future/options-component-preview/options-preview-stitch-secondary.html` 仅作开发改稿对比输入。
 - `components/infrastructure/` 与 `components/services/`：选项页专属 Modal/UI 控件与配置传输服务。
 - `utils/`：辅助方法（导入导出、transfer 等）；正式 Options 样式由 `stitch/styles/` 承载。
@@ -103,6 +104,7 @@ DOM-heavy 场景如需直接拿到按钮元素，统一使用 `src/ui/primitives
 src/options/
 ├── app/
 │   ├── bootstrap.ts          # 入口：初始化 I18n、Controller、Stitch Shell
+│   ├── optionsOverlayRuntimeState.ts # 可选的产品中立运行时叠加状态端口
 │   ├── productionStitchShell.ts # 正式 Stitch Secondary production adapter
 │   ├── optionsController.ts  # 控制器：持久化、自动保存、导入导出
 │   └── optionsControllerContext.ts
@@ -123,6 +125,7 @@ src/options/
 - `applyI18n()`：创建并挂载 `PageI18nController`。
 - `initializeOptionsController()`：实例化 `OptionsController`，通过 `createOptionsFormAdapter()` 读取当前生产表单状态并注册清理函数。
 - `mountProductionStitchShell()`：挂载 Stitch Secondary Shell，实现导航、资源弹层、生产状态绑定与自动保存。
+- 可选的 `optionsOverlayRuntimeState` 快照由 shell 作为只读叠加层合入 schema/action 上下文；shell 订阅快照变化触发重渲染，并在 teardown 时解除订阅。公共入口不创建该状态，因此 Free 构建语义不变。
 - `src/options/index.ts -> src/options/runtimeEntry.ts -> src/options/app/bootstrap.ts` 是唯一正式页面启动链；旧 `src/options/bootstrap.ts` 兼容入口已删除。
 - 已退役的旧 layout shell、`mountOptionsShell` 与 `ModalController` 不得重新进入正式页面启动链。
 - `getPlatformServices` 只允许保留在 `src/options/index.ts` 这个 Options composition root；repository 注册归属 `src/options/runtimeEntry.ts`；`src/options/app/bootstrap.ts` 必须保持为显式依赖注入入口。

@@ -10,9 +10,6 @@ import { DI_TOKENS } from '../../shared/di/tokens';
 import { resolveRepository } from '../../shared/di/serviceRegistry';
 import type { IOptionsRepository, IMessagingRepository } from '../../shared/repositories';
 import type { StoredOptions } from '../../shared/types/options';
-import type { RuntimeService } from '../../platform/interfaces/runtime';
-import type { StorageService } from '../../platform/interfaces/storage';
-import type { ActionRegistry } from '../schema-runtime/actionRuntime';
 import { showStatusMessage } from '../components/messages';
 import { createOptionsFormAdapter } from '../components/optionsFormAdapter';
 import { chromeOptionsPersistence } from '../services/persistence';
@@ -28,52 +25,21 @@ import {
   type MountedProductionStitchShell
 } from './productionStitchShell';
 import { trackInitialOptionsTelemetry } from './productionStitchTelemetry';
+import { loadProductionStitchAssets } from './productionStitchShellAssetResolver';
 import {
-  loadProductionStitchAssets,
-  type ProductionStitchAssetsProvider
-} from './productionStitchShellAssetResolver';
-import type { PreviewContent, PreviewStoreState } from '../stitch/types';
+  resolveOptionsAppBootstrapDependencies,
+  type OptionsAppBootstrapDependencies
+} from './optionsAppBootstrapDependencies';
 
-export interface OptionsAppBootstrapDependencies {
-  storage: StorageService;
-  runtime?: Pick<RuntimeService, 'getURL' | 'getBrowserTarget'>;
-  stitchAssetsProvider?: ProductionStitchAssetsProvider;
-  additionalActionHandlers?: ActionRegistry<PreviewStoreState, PreviewContent>;
-}
+export { configureOptionsAppBootstrapStorage } from './optionsAppBootstrapDependencies';
 
 type CleanupFn = () => void;
 
 const cleanupHandlers: CleanupFn[] = [];
-let optionsAppBootstrapStorage: StorageService | null = null;
 let declarativeI18nController: PageI18nController | null = null;
 let unloadCleanupRegistered = false;
 let optionsController: OptionsController | null = null;
 let mountedShell: MountedProductionStitchShell | null = null;
-
-export function configureOptionsAppBootstrapStorage(storage: StorageService): void {
-  optionsAppBootstrapStorage = storage;
-}
-
-function resolveOptionsAppBootstrapDependencies(
-  dependencies?: Partial<OptionsAppBootstrapDependencies>
-): OptionsAppBootstrapDependencies {
-  const storage = dependencies?.storage ?? optionsAppBootstrapStorage;
-  if (!storage) {
-    throw new Error('[Options] StorageService is required for bootstrap.');
-  }
-
-  optionsAppBootstrapStorage = storage;
-  return {
-    storage,
-    ...(dependencies?.runtime ? { runtime: dependencies.runtime } : {}),
-    ...(dependencies?.stitchAssetsProvider
-      ? { stitchAssetsProvider: dependencies.stitchAssetsProvider }
-      : {}),
-    ...(dependencies?.additionalActionHandlers
-      ? { additionalActionHandlers: dependencies.additionalActionHandlers }
-      : {})
-  };
-}
 
 async function ensureDeclarativeI18nController(): Promise<PageI18nController> {
   if (!declarativeI18nController) {
@@ -136,6 +102,7 @@ export async function bootstrapOptionsApp(
 
   const {
     additionalActionHandlers,
+    overlayRuntimeState,
     storage,
     runtime,
     stitchAssetsProvider = loadProductionStitchAssets
@@ -163,6 +130,7 @@ export async function bootstrapOptionsApp(
     ...(runtime ? { runtime } : {}),
     storage,
     ...(additionalActionHandlers ? { additionalActionHandlers } : {}),
+    ...(overlayRuntimeState ? { overlayRuntimeState } : {}),
     optionsRepository: resolveRepository<IOptionsRepository>(DI_TOKENS.IOptionsRepository),
     messagingRepository: resolveRepository<IMessagingRepository>(DI_TOKENS.IMessagingRepository),
     changeLanguage: async (language) => {

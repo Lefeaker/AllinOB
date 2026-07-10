@@ -12,6 +12,10 @@ import type {
 } from '@options/stitch/types';
 import type { OptionsController } from './optionsController';
 import type { ProductionStitchAssetUrlResolver } from './productionStitchAssetUrlResolver';
+import type {
+  OptionsOverlayAppDataSnapshot,
+  OptionsOverlayRuntimeStatePort
+} from './optionsOverlayRuntimeState';
 
 export interface MountedProductionStitchShell {
   cleanup(): void;
@@ -40,5 +44,6 @@ export interface ProductionStitchShellDependencies {
   resolveAssetUrl?: ProductionStitchAssetUrlResolver;
   browserTarget?: SchemaContext['browserTarget'];
   additionalActionHandlers?: ActionRegistry<PreviewStoreState, PreviewContent>;
+  overlayRuntimeState?: OptionsOverlayRuntimeStatePort<OptionsOverlayAppDataSnapshot>;
   now?: () => number;
 }

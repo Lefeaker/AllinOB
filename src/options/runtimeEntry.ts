@@ -2,6 +2,10 @@ import { bootstrapOptionsApp, configureOptionsAppBootstrapStorage } from '@optio
 import type { ProductionStitchAssetsProvider } from '@options/app/productionStitchShellAssetResolver';
 import type { ActionRegistry } from '@options/schema-runtime/actionRuntime';
 import type { PreviewContent, PreviewStoreState } from '@options/stitch/types';
+import type {
+  OptionsOverlayAppDataSnapshot,
+  OptionsOverlayRuntimeStatePort
+} from '@options/app/optionsOverlayRuntimeState';
 import { registerFallbackRepositories, registerRepositories } from '@shared/di/serviceRegistry';
 import { createMemoryStorageService } from '@platform/preview/memoryStorage';
 import { createPreviewPlatformServices } from '@platform/preview/services';
@@ -16,6 +20,7 @@ export type OptionsRuntimePlatformServices = Pick<
 export interface OptionsRuntimeBootstrapDependencies {
   stitchAssetsProvider?: ProductionStitchAssetsProvider;
   additionalActionHandlers?: ActionRegistry<PreviewStoreState, PreviewContent>;
+  overlayRuntimeState?: OptionsOverlayRuntimeStatePort<OptionsOverlayAppDataSnapshot>;
 }
 
 export async function bootstrapOptionsRuntime(
@@ -65,6 +70,9 @@ export async function bootstrapOptionsRuntime(
       : {}),
     ...(dependencies.additionalActionHandlers
       ? { additionalActionHandlers: dependencies.additionalActionHandlers }
+      : {}),
+    ...(dependencies.overlayRuntimeState
+      ? { overlayRuntimeState: dependencies.overlayRuntimeState }
       : {})
   });
 }

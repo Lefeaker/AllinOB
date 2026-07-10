@@ -51,6 +51,7 @@ interface ProductionStitchShellActionRuntimeOptions {
   mutate(mutator: (draftState: PreviewStoreState) => void, options?: { silent?: boolean }): void;
   currentDomainEntries(): Array<[string, string]>;
   refreshAppData(): void;
+  syncOverlayRuntimeState(): void;
   refreshOptions(options: StoredOptions | CompleteOptions | null): void;
   render(): void;
   renderActiveResourceModal(): void;
@@ -327,7 +328,10 @@ export function createProductionStitchShellActionRuntime(
       storageController.updateVaultField(index, field, value)
   });
   const actionRuntime = createActionRuntime<PreviewStoreState, PreviewContent>({
-    getContext: () => options.createSchemaContext(),
+    getContext: () => {
+      options.syncOverlayRuntimeState();
+      return options.createSchemaContext();
+    },
     mutate: (mutator, mutationOptions) => options.mutate(mutator, mutationOptions),
     handlers: mergeProductionStitchActionHandlers(productionHandlers, additionalActionHandlers),
     onUnhandledAction: () => {

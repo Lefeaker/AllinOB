@@ -114,11 +114,12 @@ const ALLOWED_PREVIEW_DRIFT = new Map([
         'The v0.2.1 release version bump refreshes the generated preview JS hash after updating the Options runtime version label and regenerated runtime locale artifacts while preserving the frozen reference, preview freeze logic, and Stitch runtime contract.',
         'The v0.2.1 user-facing changelog and version source-of-truth refresh updates the generated preview JS hash after replacing technical release-note prose with user-readable export stability copy, deriving manifest/build release metadata from package.json, and adding the release metadata guard while preserving the frozen reference, preview freeze logic, and Stitch runtime contract.',
         'P02 public provider bootstrap composition refreshes the generated preview JS hash after Options bootstrap accepts an injected Stitch assets provider while its default still imports productionStitchAssets, preserving the frozen reference, preview freeze logic, and Stitch runtime contract.',
-        'The Zendio display-name punctuation refresh updates the generated preview JS hash after replacing the Chinese dash in Zendio-All in Obsidian with the product-approved ASCII hyphen across catalog-backed runtime/static copy and release artifact names while preserving the frozen reference, preview freeze logic, and Stitch runtime contract.'
+        'The Zendio display-name punctuation refresh updates the generated preview JS hash after replacing the Chinese dash in Zendio-All in Obsidian with the product-approved ASCII hyphen across catalog-backed runtime/static copy and release artifact names while preserving the frozen reference, preview freeze logic, and Stitch runtime contract.',
+        'P12 closes the inherited stale exact hash after two independent P11-base builds and two independent P12-current builds produced the same preview JS bytes, preserving the frozen reference and exact-hash comparison without adding private text or dependencies.'
       ].join(' '),
       leftSha256: '9020ccbd91acd691eccd3fdf568b9a90efbddf0a35d79f36ef1caba702fa0c07',
-      // 2026-07-09 P02 public provider bootstrap composition preview JS hash.
-      rightSha256: 'e928945d7356bb9c71c258509f9dba6fabdb2887df37263e3deb5faefc0415fb'
+      // 2026-07-11 P12 current/base deterministic preview JS hash proof.
+      rightSha256: 'f15cfbed71fa74d2df1d11e976426269e28a1cd69d46d1e0f3908c8888687252'
     }
   ]
 ]);

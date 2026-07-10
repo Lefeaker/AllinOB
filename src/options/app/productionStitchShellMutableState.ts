@@ -13,6 +13,10 @@ import {
   createProductionStitchSchemaContext
 } from './productionStitchShellContext';
 import { createInitialDraft, resolveDefaultDomainMappingRows } from './productionStitchShellState';
+import type {
+  OptionsOverlayAppDataSnapshot,
+  OptionsOverlayRuntimeStatePort
+} from './optionsOverlayRuntimeState';
 
 interface ProductionStitchShellMutableStateOptions {
   previewContent: PreviewContent;
@@ -20,6 +24,7 @@ interface ProductionStitchShellMutableStateOptions {
   language: Language;
   messages: Messages | null;
   browserTarget?: SchemaContext['browserTarget'];
+  overlayRuntimeState?: OptionsOverlayRuntimeStatePort<OptionsOverlayAppDataSnapshot>;
 }
 
 export interface ProductionStitchShellMutableState {
@@ -27,6 +32,8 @@ export interface ProductionStitchShellMutableState {
   getAppData(): PreviewContent;
   setAppData(appData: PreviewContent): void;
   refreshAppData(): void;
+  syncOverlayRuntimeState(): void;
+  setOverlayRuntimeSnapshot(snapshot: OptionsOverlayAppDataSnapshot): boolean;
   getConnectionNotice(): PreviewContent['storage']['connectionNotice'] | undefined;
   setConnectionNotice(notice: PreviewContent['storage']['connectionNotice'] | undefined): void;
   getCurrentLanguage(): Language;
@@ -47,7 +54,8 @@ export function createProductionStitchShellMutableState({
   initialOptions = null,
   language,
   messages,
-  browserTarget = 'chrome'
+  browserTarget = 'chrome',
+  overlayRuntimeState
 }: ProductionStitchShellMutableStateOptions): ProductionStitchShellMutableState {
   let draft = createInitialDraft(initialOptions);
   let currentLanguage = language;
@@ -55,7 +63,11 @@ export function createProductionStitchShellMutableState({
   let connectionNotice: PreviewContent['storage']['connectionNotice'] | undefined;
   let maintenanceLog = previewContent.maintenanceLog;
   let domainMappingRows: Array<[string, string]> = resolveDefaultDomainMappingRows(draft);
-  let appData = createProductionStitchAppData(previewContent, draft, { maintenanceLog });
+  let overlayRuntimeSnapshot = overlayRuntimeState?.getSnapshot();
+  let appData = mergeOverlayRuntimeSnapshot(
+    createProductionStitchAppData(previewContent, draft, { maintenanceLog }),
+    overlayRuntimeSnapshot
+  );
   let state = applyOptionsToState(createInitialStitchState(appData), draft, appData);
   state.interfaceThemePreference = resolveThemePreference(draft);
   state.previewTheme = resolveStoredTheme(draft);
@@ -74,11 +86,29 @@ export function createProductionStitchShellMutableState({
   }
 
   function refreshAppData(): void {
-    appData = createProductionStitchAppData(previewContent, draft, {
-      ...(connectionNotice ? { connectionNotice } : {}),
-      maintenanceLog
-    });
+    appData = mergeOverlayRuntimeSnapshot(
+      createProductionStitchAppData(previewContent, draft, {
+        ...(connectionNotice ? { connectionNotice } : {}),
+        maintenanceLog
+      }),
+      overlayRuntimeSnapshot
+    );
     state.maintenanceLog = maintenanceLog;
+  }
+
+  function setOverlayRuntimeSnapshot(snapshot: OptionsOverlayAppDataSnapshot): boolean {
+    if (Object.is(overlayRuntimeSnapshot, snapshot)) {
+      return false;
+    }
+    overlayRuntimeSnapshot = snapshot;
+    refreshAppData();
+    return true;
+  }
+
+  function syncOverlayRuntimeState(): void {
+    if (overlayRuntimeState) {
+      setOverlayRuntimeSnapshot(overlayRuntimeState.getSnapshot());
+    }
   }
 
   return {
@@ -88,6 +118,8 @@ export function createProductionStitchShellMutableState({
       appData = nextAppData;
     },
     refreshAppData,
+    syncOverlayRuntimeState,
+    setOverlayRuntimeSnapshot,
     getConnectionNotice: () => connectionNotice,
     setConnectionNotice: (notice) => {
       connectionNotice = notice;
@@ -124,4 +156,11 @@ export function createProductionStitchShellMutableState({
       state.previewTheme = persistTheme(state.interfaceThemePreference);
     }
   };
+}
+
+function mergeOverlayRuntimeSnapshot(
+  appData: PreviewContent,
+  snapshot: OptionsOverlayAppDataSnapshot | undefined
+): PreviewContent {
+  return snapshot ? { ...appData, ...snapshot } : appData;
 }

@@ -30,6 +30,7 @@ import { createProductionStitchAssetUrlResolver } from './productionStitchAssetU
 export function mountProductionStitchShellFromDependencies({
   root,
   additionalActionHandlers,
+  overlayRuntimeState,
   controller,
   initialOptions = null,
   getFooterMeta,
@@ -65,7 +66,8 @@ export function mountProductionStitchShellFromDependencies({
     previewContent: stitchAssets.previewContent,
     language,
     messages,
-    browserTarget
+    browserTarget,
+    ...(overlayRuntimeState ? { overlayRuntimeState } : {})
   });
   const themeMediaQuery = createThemeMediaQuery();
 
@@ -153,6 +155,7 @@ export function mountProductionStitchShellFromDependencies({
     mutate,
     currentDomainEntries: () => resolveProductionDomainEntries(getDomainMappingRows()),
     refreshAppData,
+    syncOverlayRuntimeState: () => shellState.syncOverlayRuntimeState(),
     refreshOptions: (options) => mounted.refreshOptions(options),
     render,
     renderActiveResourceModal,
@@ -198,6 +201,11 @@ export function mountProductionStitchShellFromDependencies({
     schemaRenderer,
     widgetHost
   });
+  const unsubscribeOverlayRuntimeState = overlayRuntimeState?.subscribe((snapshot) => {
+    if (shellState.setOverlayRuntimeSnapshot(snapshot)) {
+      renderDelegates.render();
+    }
+  });
 
   function scheduleDraftSave(): void {
     shellState.refreshAppData();
@@ -206,6 +214,7 @@ export function mountProductionStitchShellFromDependencies({
 
   const mounted: MountedProductionStitchShell = {
     cleanup() {
+      unsubscribeOverlayRuntimeState?.();
       renderLifecycle?.cleanup();
       cleanupProductionStitchShell({
         mountRoot,

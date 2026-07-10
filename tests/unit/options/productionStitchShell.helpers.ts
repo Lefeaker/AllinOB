@@ -260,6 +260,7 @@ export function createActionRuntimeHarness() {
     refreshAppData: () => {
       appData = createProductionContent(stitchPreviewContent, draft);
     },
+    syncOverlayRuntimeState: vi.fn(),
     refreshOptions: (options) => {
       draft = mergeOptions(options) as CompleteOptions;
       appData = createProductionContent(stitchPreviewContent, draft);

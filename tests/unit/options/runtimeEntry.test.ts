@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { StorageService } from '../../../src/platform/interfaces/storage';
 import type { OptionsRuntimePlatformServices } from '../../../src/options/runtimeEntry';
+import { createOptionsOverlayRuntimeState } from '../../../src/options/app/optionsOverlayRuntimeState';
 import { asType } from '../../utils/typeHelpers';
 
 const bootstrapOptionsAppMock = vi.hoisted(() => vi.fn(() => Promise.resolve(undefined)));
@@ -50,6 +51,7 @@ describe('options runtime entry provider composition', () => {
     const additionalActionHandlers = {
       'owner-extension:test': vi.fn()
     };
+    const overlayRuntimeState = createOptionsOverlayRuntimeState({ ownerStatus: 'active' });
     const platformServices = asType<OptionsRuntimePlatformServices>({
       storage: { sync: {}, local: {} },
       messaging: {},
@@ -60,7 +62,8 @@ describe('options runtime entry provider composition', () => {
     const { bootstrapOptionsRuntime } = await import('../../../src/options/runtimeEntry');
     await bootstrapOptionsRuntime(platformServices, {
       stitchAssetsProvider,
-      additionalActionHandlers
+      additionalActionHandlers,
+      overlayRuntimeState
     });
 
     expect(bootstrapOptionsAppMock).toHaveBeenCalledWith(
@@ -68,7 +71,8 @@ describe('options runtime entry provider composition', () => {
         storage: platformServices.storage,
         runtime: platformServices.runtime,
         stitchAssetsProvider,
-        additionalActionHandlers
+        additionalActionHandlers,
+        overlayRuntimeState
       })
     );
   });

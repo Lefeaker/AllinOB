@@ -7,6 +7,7 @@ import { repositoryContainer } from '@shared/di/serviceRegistry';
 import { DI_TOKENS } from '@shared/di/tokens';
 import { previewContent as productionPreviewContent } from '@options/app/productionStitchAssets';
 import type { StorageService } from '../../../src/platform/interfaces/storage';
+import { createOptionsOverlayRuntimeState } from '@options/app/optionsOverlayRuntimeState';
 
 const showStatusMessageMock = vi.hoisted(() => vi.fn());
 const getOptionsMessagesMock = vi.hoisted(() =>
@@ -224,6 +225,16 @@ describe('options bootstrap', () => {
       expect.objectContaining({
         additionalActionHandlers
       })
+    );
+  });
+
+  it('passes an overlay runtime state owner to the production shell', async () => {
+    const overlayRuntimeState = createOptionsOverlayRuntimeState({ ownerStatus: 'active' });
+
+    await bootstrapOptionsApp({ overlayRuntimeState });
+
+    expect(mountProductionStitchShellMock).toHaveBeenCalledWith(
+      expect.objectContaining({ overlayRuntimeState })
     );
   });
 
