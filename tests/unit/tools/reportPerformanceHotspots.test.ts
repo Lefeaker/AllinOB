@@ -12,6 +12,12 @@ describe('report-performance-hotspots', () => {
     );
   });
 
+  it('locks the extracted screenshot cache types barrel to the proactive owner budget', () => {
+    expect(readFileSync(toolPath, 'utf8')).toContain(
+      "['src/content/video/videoScreenshotCacheTypes.ts', 250]"
+    );
+  });
+
   function createFixtureRepo(files: Record<string, string>) {
     const root = mkdtempSync(join(tmpdir(), 'aiiinob-hotspots-'));
 

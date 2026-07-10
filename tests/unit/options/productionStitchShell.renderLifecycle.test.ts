@@ -274,7 +274,7 @@ describe('mountProductionStitchShell renderLifecycle', () => {
     const controller = createController();
     const ownerOverride = vi.fn();
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
-    mountProductionStitchShell({
+    const mounted = mountProductionStitchShell({
       controller: asOptionsController(controller),
       initialOptions: null,
       messages: null,
@@ -287,6 +287,17 @@ describe('mountProductionStitchShell renderLifecycle', () => {
     findButton('Add Rule').click();
 
     expect(ownerOverride).not.toHaveBeenCalled();
+    expect(mounted.collectDraft().vaultRouter?.rules).toEqual([
+      expect.objectContaining({
+        id: 'rule-1',
+        type: 'domain',
+        pattern: '',
+        priority: 50,
+        enabled: true
+      })
+    ]);
+    expect(controller.scheduleAutoSave).toHaveBeenCalledTimes(1);
+    expect(document.querySelectorAll('.routing-rules-table-scroll tbody tr')).toHaveLength(1);
     expect(warn).toHaveBeenCalledWith(
       '[Options] Ignoring additional Stitch action handler for "routing:add".'
     );

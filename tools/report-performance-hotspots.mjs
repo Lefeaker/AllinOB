@@ -85,7 +85,8 @@ const MAX_LINE_BUDGETS = new Map([
   // 2026-06-14 video screenshot cache P02: storage repository is lazy-owned by
   // draft restore/write-through milestones and keeps image bytes outside drafts.
   ['src/content/video/videoScreenshotCacheRepository.ts', 423],
-  ['src/content/video/videoScreenshotCacheTypes.ts', 299],
+  // 2026-07-11 P11 review: the extracted types barrel must stay below discovery.
+  ['src/content/video/videoScreenshotCacheTypes.ts', 250],
   // 2026-06-17 video screenshot cache P09: background-owned IndexedDB blob store
   // keeps screenshot bytes outside storage.local and owns the DOM IDB facade.
   ['src/background/services/videoScreenshotCacheIndexedDbStore.ts', 331],
