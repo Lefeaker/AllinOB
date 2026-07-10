@@ -7,10 +7,15 @@ import {
 
 export type RestoreCapabilityPolicy = SessionDraftStoragePolicy;
 export type RestoreCapabilityPolicyOptions = SessionDraftStoragePolicyOptions;
+export type RestoreCapabilityPolicyChangeListener = (policy: RestoreCapabilityPolicy) => void;
+export type RestoreCapabilityPolicyUnsubscribe = () => void;
 
 export interface RestoreCapabilityPolicyProvider {
   getCurrentPolicy(): RestoreCapabilityPolicy;
   refreshPolicy?(): Promise<RestoreCapabilityPolicy> | RestoreCapabilityPolicy;
+  subscribePolicyChanges?(
+    listener: RestoreCapabilityPolicyChangeListener
+  ): RestoreCapabilityPolicyUnsubscribe;
 }
 
 export const DEFAULT_RESTORE_CAPABILITY_POLICY: RestoreCapabilityPolicy =

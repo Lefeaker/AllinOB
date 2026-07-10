@@ -37,9 +37,9 @@ export interface ContentRuntimeBootstrapOptions {
 }
 
 export function initializeClipperRuntime(options: ContentRuntimeBootstrapOptions = {}): void {
-  const sessionDraftStoragePolicy = (
-    options.restoreStoragePolicyProvider ?? defaultRestoreCapabilityPolicyProvider
-  ).getCurrentPolicy();
+  const restoreStoragePolicyProvider =
+    options.restoreStoragePolicyProvider ?? defaultRestoreCapabilityPolicyProvider;
+  const getSessionDraftStoragePolicy = () => restoreStoragePolicyProvider.getCurrentPolicy();
   const platform = getPlatformServices();
   const { storage, messaging, tabs, runtime: extensionRuntime } = platform;
   registerRepositories({
@@ -83,7 +83,7 @@ export function initializeClipperRuntime(options: ContentRuntimeBootstrapOptions
     messaging,
     runtime: extensionRuntime,
     promptGateway: clipPromptGateway,
-    sessionDraftStoragePolicy,
+    getSessionDraftStoragePolicy,
     showSupportProgress
   });
   const createVideoSession = createLazyVideoSessionFactory({
@@ -92,7 +92,7 @@ export function initializeClipperRuntime(options: ContentRuntimeBootstrapOptions
     storage,
     messaging,
     runtime: extensionRuntime,
-    sessionDraftStoragePolicy,
+    getSessionDraftStoragePolicy,
     showSupportProgress
   });
   const selectionController = createSelectionController({
@@ -118,7 +118,7 @@ export function initializeClipperRuntime(options: ContentRuntimeBootstrapOptions
       storage,
       messaging,
       runtime: extensionRuntime,
-      sessionDraftStoragePolicy,
+      getSessionDraftStoragePolicy,
       showSupportProgress
     },
     window.location.href
@@ -160,7 +160,7 @@ export function initializeClipperRuntime(options: ContentRuntimeBootstrapOptions
       document,
       window,
       storage,
-      sessionDraftStoragePolicy,
+      getSessionDraftStoragePolicy,
       currentUrl: () => window.location.href,
       createReaderSession: () => createReaderSession(document, window.location.href),
       createVideoSession: () => createVideoSession(document),

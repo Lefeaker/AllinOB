@@ -1,9 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { BackgroundStartupDependencies } from '../../../src/background/backgroundStartup';
-import {
-  DEFAULT_RESTORE_CAPABILITY_POLICY,
-  createExtendedRestoreCapabilityPolicy
-} from '../../../src/shared/capabilities/capabilityPolicy';
+import { createExtendedRestoreCapabilityPolicy } from '../../../src/shared/capabilities/capabilityPolicy';
 import { asType } from '../../utils/typeHelpers';
 
 const configureBackgroundDependencyStorageMock = vi.hoisted(() => vi.fn());
@@ -89,13 +86,15 @@ describe('backgroundStartup', () => {
       deps.tabs,
       deps.runtime,
       deps.storage,
-      DEFAULT_RESTORE_CAPABILITY_POLICY.videoScreenshotCache
+      expect.objectContaining({
+        getCurrentPolicy: expect.any(Function)
+      })
     );
     expect(registerRuntimeMessageListenerMock).toHaveBeenCalledTimes(1);
     expect(ensureUsageStatsInitializedMock).toHaveBeenCalledTimes(1);
   });
 
-  it('passes the injected restore policy screenshot cache snapshot to runtime messages', async () => {
+  it('passes the injected live restore policy source to runtime messages', async () => {
     const { startBackgroundRuntime } = await import('../../../src/background/backgroundStartup');
     const storagePolicy = createExtendedRestoreCapabilityPolicy({
       videoScreenshotCache: {
@@ -137,11 +136,13 @@ describe('backgroundStartup', () => {
       }
     };
 
+    const restoreStoragePolicyProvider = {
+      getCurrentPolicy: () => storagePolicy
+    };
+
     startBackgroundRuntime({
       ...deps,
-      restoreStoragePolicyProvider: {
-        getCurrentPolicy: () => storagePolicy
-      }
+      restoreStoragePolicyProvider
     });
 
     expect(createRuntimeMessageListenerDependenciesMock).toHaveBeenCalledWith(
@@ -149,7 +150,7 @@ describe('backgroundStartup', () => {
       deps.tabs,
       deps.runtime,
       deps.storage,
-      storagePolicy.videoScreenshotCache
+      restoreStoragePolicyProvider
     );
   });
 });

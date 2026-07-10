@@ -20,6 +20,7 @@ export interface SessionDraftAutoRestoreOptions {
   createReaderSession: () => ReaderSessionAdapter;
   createVideoSession: () => VideoSessionAdapter;
   sessionDraftStoragePolicy?: SessionDraftStoragePolicy;
+  getSessionDraftStoragePolicy?: () => SessionDraftStoragePolicy;
   isReaderSessionActive: () => boolean;
   isVideoSessionActive: () => boolean;
   isVideoCandidateUrl: (href: string) => boolean;
@@ -30,11 +31,6 @@ export type SessionDraftAutoRestoreDisposer = () => void;
 export function startSessionDraftAutoRestore(
   options: SessionDraftAutoRestoreOptions
 ): SessionDraftAutoRestoreDisposer {
-  const sessionDraftStoragePolicy =
-    options.sessionDraftStoragePolicy ?? DEFAULT_SESSION_DRAFT_STORAGE_POLICY;
-  const repository = createSessionDraftRepository(options.storage.local, {
-    storagePolicy: sessionDraftStoragePolicy
-  });
   const abortController = new AbortController();
   let stopped = false;
   let restoreRun: Promise<void> | null = null;
@@ -42,6 +38,14 @@ export function startSessionDraftAutoRestore(
 
   const isSessionActive = (): boolean =>
     options.isReaderSessionActive() || options.isVideoSessionActive();
+
+  const createRepository = () =>
+    createSessionDraftRepository(options.storage.local, {
+      storagePolicy:
+        options.getSessionDraftStoragePolicy?.() ??
+        options.sessionDraftStoragePolicy ??
+        DEFAULT_SESSION_DRAFT_STORAGE_POLICY
+    });
 
   const queueRestore = (): void => {
     if (stopped) {
@@ -78,6 +82,7 @@ export function startSessionDraftAutoRestore(
 
       const href = options.currentUrl();
       const isVideoCandidate = options.isVideoCandidateUrl(href);
+      const repository = createRepository();
       const [videoDraft, readerDraft] = await Promise.all([
         isVideoCandidate ? repository.loadLatest('video', href) : Promise.resolve(null),
         repository.loadLatest('reader', href)

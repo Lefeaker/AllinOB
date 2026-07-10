@@ -41,9 +41,10 @@ import {
   type BackgroundVideoScreenshotCacheHandler
 } from '../services/videoScreenshotCacheService';
 import {
-  DEFAULT_SESSION_DRAFT_STORAGE_POLICY,
-  type SessionDraftStoragePolicy
-} from '../../content/sessionDrafts';
+  defaultRestoreCapabilityPolicyProvider,
+  type RestoreCapabilityPolicyProvider
+} from '../../shared/capabilities/capabilityPolicy';
+import type { SessionDraftStoragePolicy } from '../../content/sessionDrafts';
 import type { StorageService } from '../../platform/interfaces/storage';
 import {
   isGetTabContextMessage,
@@ -154,12 +155,17 @@ export function createRuntimeMessageListenerDependencies(
   tabs: Pick<TabsService, 'create' | 'get' | 'sendMessage' | 'captureVisibleTab'>,
   runtime: Pick<RuntimeService, 'getURL'>,
   storage: Pick<StorageService, 'local'>,
-  cacheOptions: SessionDraftStoragePolicy['videoScreenshotCache'] = DEFAULT_SESSION_DRAFT_STORAGE_POLICY.videoScreenshotCache
+  restoreStoragePolicyProvider:
+    | RestoreCapabilityPolicyProvider
+    | SessionDraftStoragePolicy['videoScreenshotCache'] = defaultRestoreCapabilityPolicyProvider
 ): RuntimeMessageListenerDependencies {
   return {
     messaging,
     clipPipeline: createClipPipelineDependencies(tabs),
-    handleVideoScreenshotCacheMessage: createScreenshotCacheHandler(storage, cacheOptions),
+    handleVideoScreenshotCacheMessage: createScreenshotCacheHandler(
+      storage,
+      restoreStoragePolicyProvider
+    ),
     async openOptionsPage(section) {
       const optionsUrl = runtime.getURL('options/index.html');
       const normalizedSection = section?.trim();
