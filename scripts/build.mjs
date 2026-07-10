@@ -1,6 +1,12 @@
 import { build, context } from 'esbuild';
 import { mkdir, cp, readdir, rm, writeFile } from 'fs/promises';
 import { join } from 'path';
+import {
+  applyBuildOverlayManifestPatch,
+  copyBuildOverlayStaticAssets,
+  createBuildEntrypointPlan,
+  loadBuildOverlayManifest
+} from './utils/buildOverlayManifest.mjs';
 import { applyRestHostPermissions } from './utils/manifestHosts.mjs';
 import { createBrowserManifest } from './utils/manifestSources.mjs';
 import { readPackageVersion } from './utils/packageMetadata.mjs';
@@ -14,6 +20,12 @@ const skipChecks = args.includes('--skip-checks');
 const firefox = args.includes('--firefox');
 const includeHarnesses = !prod || args.includes('--include-harnesses');
 const distDir = getArgValue('--outdir') ?? process.env.BUILD_DIST_DIR ?? 'build/dist';
+const overlayManifestPath = getArgValue('--overlay-manifest');
+const buildOverlay = loadBuildOverlayManifest(overlayManifestPath);
+const entrypointPlan = createBuildEntrypointPlan({
+  includeHarnesses,
+  overlay: buildOverlay
+});
 const packageVersion = readPackageVersion();
 
 function getArgValue(name) {
@@ -113,35 +125,13 @@ const sharedBuildOptions = {
 
 const backgroundBuildOptions = {
   ...sharedBuildOptions,
-  entryPoints: {
-    'background/index': 'src/background/index.ts'
-  },
+  entryPoints: entrypointPlan.backgroundEntryPoints,
   format: 'iife'
-};
-
-const productionAppEntryPoints = {
-  'content/runtime': 'src/content/index.ts',
-  'local-vault-permission': 'src/content/runtime/localVaultPermissionFrame.ts',
-  'offscreen/local-vault': 'src/offscreen/localVault.ts',
-  'options/index': 'src/options/index.ts',
-  'onboarding/index': 'src/onboarding/index.ts'
-};
-
-const harnessEntryPoints = {
-  'interaction-contract-harness': 'src/dev/interactionContractHarness.ts',
-  'content-orchestrator-harness': 'src/dev/contentOrchestratorHarness.ts',
-  'runtime-observability-harness': 'src/dev/runtimeObservabilityHarness.ts',
-  'local-vault-write-harness': 'src/dev/localVaultWriteHarness.ts'
 };
 
 const appBuildOptions = {
   ...sharedBuildOptions,
-  entryPoints: includeHarnesses
-    ? {
-        ...productionAppEntryPoints,
-        ...harnessEntryPoints
-      }
-    : productionAppEntryPoints,
+  entryPoints: entrypointPlan.appEntryPoints,
   format: 'esm',
   splitting: true,
   chunkNames: 'chunks/[name]-[hash]'
@@ -218,7 +208,13 @@ await cp('src/onboarding/index.html', join(distDir, 'onboarding/index.html'));
 // Build manifest from the shared source-of-truth and browser-specific overrides
 const manifest = createBrowserManifest(firefox ? 'firefox' : 'chrome');
 const manifestWithHosts = applyRestHostPermissions(manifest);
-await writeFile(join(distDir, 'manifest.json'), JSON.stringify(manifestWithHosts, null, 2));
+const manifestWithOverlay = applyBuildOverlayManifestPatch(
+  manifestWithHosts,
+  firefox ? 'firefox' : 'chrome',
+  buildOverlay
+);
+await writeFile(join(distDir, 'manifest.json'), JSON.stringify(manifestWithOverlay, null, 2));
+await copyBuildOverlayStaticAssets(buildOverlay, { distDir });
 
 const browserType = firefox ? ' (Firefox)' : ' (Chrome)';
 console.log(`✅ Build done${prod ? ' (production mode)' : ''}${browserType}: ${distDir}`);

@@ -1,40 +1,18 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { dirname } from 'node:path';
+import { existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
+import { dirname, isAbsolute, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { build } from 'esbuild';
 import { cssTextPlugin } from '../scripts/plugins/cssTextPlugin.mjs';
+import {
+  HARNESS_ENTRYPOINTS,
+  createBuildEntrypointPlan,
+  createConfiguredEntrypoints,
+  createRequiredEntrypoints,
+  isOverlaySourcePath,
+  loadBuildOverlayManifest
+} from '../scripts/utils/buildOverlayManifest.mjs';
 
 const REPORT_PATH = 'build/reports/production-build-graph.json';
-const REQUIRED_ENTRYPOINTS = [
-  'src/background/index.ts',
-  'src/content/index.ts',
-  'src/options/index.ts',
-  'src/onboarding/index.ts'
-];
-
-const BACKGROUND_ENTRYPOINTS = {
-  'background/index': 'src/background/index.ts'
-};
-
-const APP_ENTRYPOINTS = {
-  'content/runtime': 'src/content/index.ts',
-  'local-vault-permission': 'src/content/runtime/localVaultPermissionFrame.ts',
-  'offscreen/local-vault': 'src/offscreen/localVault.ts',
-  'options/index': 'src/options/index.ts',
-  'onboarding/index': 'src/onboarding/index.ts'
-};
-
-const HARNESS_ENTRYPOINTS = {
-  'interaction-contract-harness': 'src/dev/interactionContractHarness.ts',
-  'content-orchestrator-harness': 'src/dev/contentOrchestratorHarness.ts',
-  'runtime-observability-harness': 'src/dev/runtimeObservabilityHarness.ts',
-  'local-vault-write-harness': 'src/dev/localVaultWriteHarness.ts'
-};
-
-const ALL_ENTRYPOINTS = {
-  ...BACKGROUND_ENTRYPOINTS,
-  ...APP_ENTRYPOINTS
-};
 
 function resolveBooleanEnv(value) {
   return value === '1' || value === 'true';
@@ -67,6 +45,19 @@ function normalizePath(path) {
   return path.replace(/^\.\//, '');
 }
 
+function normalizeSourcePath(path, overlay) {
+  const normalized = normalizePath(path);
+  if (normalized.startsWith('src/') || normalized.startsWith('node_modules/')) {
+    return normalized;
+  }
+  if (!isOverlaySourcePath(normalized, overlay)) {
+    return normalized;
+  }
+
+  const absolute = isAbsolute(normalized) ? resolve(normalized) : resolve(normalized);
+  return existsSync(absolute) ? realpathSync(absolute) : absolute;
+}
+
 function sharedBuildOptions() {
   return {
     bundle: true,
@@ -91,17 +82,17 @@ function mergeMetafiles(metafiles) {
   };
 }
 
-async function createMetafile() {
+async function createMetafile(entrypointPlan) {
   const shared = sharedBuildOptions();
   const background = await build({
     ...shared,
-    entryPoints: BACKGROUND_ENTRYPOINTS,
+    entryPoints: entrypointPlan.backgroundEntryPoints,
     format: 'iife',
     outfile: 'build/audit/background/index.js'
   });
   const app = await build({
     ...shared,
-    entryPoints: APP_ENTRYPOINTS,
+    entryPoints: entrypointPlan.appEntryPoints,
     format: 'esm',
     splitting: true,
     outdir: 'build/audit'
@@ -114,20 +105,27 @@ async function createMetafile() {
   return mergeMetafiles([background.metafile, app.metafile]);
 }
 
-function collectReachableSources(metafile) {
+function shouldIncludeReachableSource(source, overlay) {
+  return (
+    source.startsWith('src/') ||
+    (!source.startsWith('node_modules/') && isOverlaySourcePath(source, overlay))
+  );
+}
+
+function collectReachableSources(metafile, overlay) {
   const reachable = {};
   const outputEntrypoints = new Set();
-  const outputOwners = collectOutputEntrypointOwners(metafile);
+  const outputOwners = collectOutputEntrypointOwners(metafile, overlay);
 
   for (const [outputPath, output] of Object.entries(metafile.outputs ?? {})) {
-    const entrypoint = output.entryPoint ? normalizePath(output.entryPoint) : null;
+    const entrypoint = output.entryPoint ? normalizeSourcePath(output.entryPoint, overlay) : null;
     if (entrypoint) {
       outputEntrypoints.add(entrypoint);
     }
 
     for (const [inputPath, input] of Object.entries(output.inputs ?? {})) {
-      const source = normalizePath(inputPath);
-      if (!source.startsWith('src/')) {
+      const source = normalizeSourcePath(inputPath, overlay);
+      if (!shouldIncludeReachableSource(source, overlay)) {
         continue;
       }
       const entrypointOwners = outputOwners.get(outputPath) ?? (entrypoint ? [entrypoint] : []);
@@ -157,14 +155,14 @@ function collectReachableSources(metafile) {
   return { reachable, outputEntrypoints };
 }
 
-function collectOutputEntrypointOwners(metafile) {
+function collectOutputEntrypointOwners(metafile, overlay) {
   const outputs = metafile.outputs ?? {};
   const owners = new Map();
   const importers = new Map();
 
   for (const [outputPath, output] of Object.entries(outputs)) {
     if (output.entryPoint) {
-      owners.set(outputPath, new Set([normalizePath(output.entryPoint)]));
+      owners.set(outputPath, new Set([normalizeSourcePath(output.entryPoint, overlay)]));
     }
     for (const imported of output.imports ?? []) {
       if (imported.kind !== 'import-statement' && imported.kind !== 'dynamic-import') {
@@ -204,20 +202,26 @@ function collectOutputEntrypointOwners(metafile) {
   );
 }
 
-function buildProductionGraphReport({ metafile }) {
+function buildProductionGraphReport({
+  entrypointPlan = createBuildEntrypointPlan(),
+  metafile,
+  overlay = null
+}) {
   if (!metafile || !metafile.inputs || !metafile.outputs) {
     throw new Error('missing esbuild metafile inputs/outputs');
   }
 
-  const { reachable, outputEntrypoints } = collectReachableSources(metafile);
-  const configuredEntrypoints = Object.values(ALL_ENTRYPOINTS);
+  const { reachable, outputEntrypoints } = collectReachableSources(metafile, overlay);
+  const allEntrypoints = createConfiguredEntrypoints(entrypointPlan);
+  const configuredEntrypoints = Object.values(allEntrypoints);
+  const requiredEntrypoints = createRequiredEntrypoints(entrypointPlan);
   const missingConfiguredEntrypoints = configuredEntrypoints.filter(
     (entrypoint) => existsSync(entrypoint) && !outputEntrypoints.has(entrypoint)
   );
-  const missingRequiredEntrypoints = REQUIRED_ENTRYPOINTS.filter(
+  const missingRequiredEntrypoints = requiredEntrypoints.filter(
     (entrypoint) => !outputEntrypoints.has(entrypoint)
   );
-  const missingReachableRequiredSources = REQUIRED_ENTRYPOINTS.filter(
+  const missingReachableRequiredSources = requiredEntrypoints.filter(
     (entrypoint) => !reachable[entrypoint]
   );
   const failures = [
@@ -233,10 +237,10 @@ function buildProductionGraphReport({ metafile }) {
   return {
     version: 1,
     generatedAt: new Date().toISOString(),
-    configuredEntrypoints: ALL_ENTRYPOINTS,
+    configuredEntrypoints: allEntrypoints,
     excludedHarnessEntrypoints: HARNESS_ENTRYPOINTS,
     requiredEntrypoints: {
-      expected: REQUIRED_ENTRYPOINTS,
+      expected: requiredEntrypoints,
       missing: Array.from(
         new Set([...missingRequiredEntrypoints, ...missingReachableRequiredSources])
       )
@@ -287,6 +291,9 @@ function parseArgs(args) {
     if (arg === '--input-metafile') {
       parsed.inputMetafile = args[index + 1];
       index += 1;
+    } else if (arg === '--overlay-manifest') {
+      parsed.overlayManifest = args[index + 1];
+      index += 1;
     } else if (arg === '--write-json' || arg === '--write-build-graph') {
       parsed.writeJson = args[index + 1];
       index += 1;
@@ -307,10 +314,12 @@ function writeJsonReport(path, report) {
 
 async function main() {
   const args = parseArgs(process.argv.slice(2));
+  const overlay = loadBuildOverlayManifest(args.overlayManifest);
+  const entrypointPlan = createBuildEntrypointPlan({ overlay });
   const metafile = args.inputMetafile
     ? JSON.parse(readFileSync(args.inputMetafile, 'utf8'))
-    : await createMetafile();
-  const report = buildProductionGraphReport({ metafile });
+    : await createMetafile(entrypointPlan);
+  const report = buildProductionGraphReport({ entrypointPlan, metafile, overlay });
   writeJsonReport(args.writeJson, report);
   process.stdout.write(formatProductionBuildGraphReport(report));
   if (report.failures.length > 0) {
@@ -320,6 +329,7 @@ async function main() {
 
 export {
   buildProductionGraphReport,
+  createBuildEntrypointPlan,
   createProductionBuildGraphDefine,
   formatProductionBuildGraphReport
 };

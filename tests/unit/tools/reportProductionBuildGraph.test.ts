@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { execFileSync } from 'node:child_process';
@@ -160,6 +160,97 @@ describe('report-production-build-graph', () => {
       ).toThrow();
     } finally {
       rmSync(fixture.dir, { recursive: true, force: true });
+    }
+  });
+
+  it('reports overlay entrypoints when an overlay manifest is provided with a metafile', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'aiiinob-production-build-graph-'));
+    const overlayRoot = join(dir, 'overlay');
+    const content = join(overlayRoot, 'entrypoints/content.ts');
+    mkdirSync(join(overlayRoot, 'entrypoints'), { recursive: true });
+    writeFileSync(content, 'export {};');
+    const canonicalContent = realpathSync(content);
+    const fixture = writeMetafile({
+      inputs: {
+        'src/background/index.ts': { bytes: 10 },
+        'src/content/index.ts': { bytes: 10 },
+        'src/options/index.ts': { bytes: 10 },
+        'src/onboarding/index.ts': { bytes: 10 },
+        [canonicalContent]: { bytes: 10 }
+      },
+      outputs: {
+        'build/audit/background/index.js': {
+          entryPoint: 'src/background/index.ts',
+          inputs: {
+            'src/background/index.ts': { bytesInOutput: 10 }
+          }
+        },
+        'build/audit/content/runtime.js': {
+          entryPoint: canonicalContent,
+          inputs: {
+            [canonicalContent]: { bytesInOutput: 10 }
+          }
+        },
+        'build/audit/options/index.js': {
+          entryPoint: 'src/options/index.ts',
+          inputs: {
+            'src/options/index.ts': { bytesInOutput: 10 }
+          }
+        },
+        'build/audit/onboarding/index.js': {
+          entryPoint: 'src/onboarding/index.ts',
+          inputs: {
+            'src/onboarding/index.ts': { bytesInOutput: 10 }
+          }
+        },
+        'build/audit/local-vault-permission.js': {
+          entryPoint: 'src/content/runtime/localVaultPermissionFrame.ts',
+          inputs: {
+            'src/content/runtime/localVaultPermissionFrame.ts': { bytesInOutput: 10 }
+          }
+        },
+        'build/audit/offscreen/local-vault.js': {
+          entryPoint: 'src/offscreen/localVault.ts',
+          inputs: {
+            'src/offscreen/localVault.ts': { bytesInOutput: 10 }
+          }
+        }
+      }
+    });
+    const overlayManifest = join(dir, 'overlay-manifest.json');
+    writeFileSync(
+      overlayManifest,
+      JSON.stringify({
+        schemaVersion: 1,
+        allowedRoots: [overlayRoot],
+        entryPoints: {
+          'content/runtime': content
+        }
+      })
+    );
+
+    try {
+      execFileSync(
+        process.execPath,
+        [
+          scriptPath,
+          '--overlay-manifest',
+          overlayManifest,
+          '--input-metafile',
+          fixture.path,
+          '--write-json',
+          join(fixture.dir, 'graph.json')
+        ],
+        { encoding: 'utf8' }
+      );
+
+      const graphText = readFileSync(join(fixture.dir, 'graph.json'), 'utf8');
+      expect(graphText).toContain(`"content/runtime": "${canonicalContent}"`);
+      expect(graphText).toContain(`"${canonicalContent}": {`);
+      expect(graphText).toContain('"missing": []');
+    } finally {
+      rmSync(fixture.dir, { recursive: true, force: true });
+      rmSync(dir, { recursive: true, force: true });
     }
   });
 });

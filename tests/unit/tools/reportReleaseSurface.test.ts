@@ -255,6 +255,20 @@ describe('report-release-surface', () => {
     }
   });
 
+  it('does not scan non-text dist assets as secret content', () => {
+    const dist = createDist({ manifest: baseManifest() });
+    writeFile(dist, 'icons/icon-16.png', '-----BEGIN PRIVATE KEY-----');
+
+    try {
+      const result = runReport(['--dist', dist]);
+
+      expect(result.status).toBe(0);
+      expect(result.stdout + result.stderr).not.toContain('private-key');
+    } finally {
+      rmSync(dist, { recursive: true, force: true });
+    }
+  });
+
   it('fails when an archive contains a forbidden harness member even if dist is clean', () => {
     const dist = createDist({ manifest: baseManifest() });
     const archivePath = writeZipArchive(dist, 'fixture.zip', ['content-orchestrator-harness.html']);
@@ -282,6 +296,22 @@ describe('report-release-surface', () => {
       expect(result.status).not.toBe(0);
       expect(result.stdout + result.stderr).toContain('_locales/qps-ploc/messages.json');
       expect(result.stdout + result.stderr).toContain('chunks/qps-ploc-fixture.js');
+    } finally {
+      rmSync(dist, { recursive: true, force: true });
+    }
+  });
+
+  it('does not scan non-text archive assets as secret content', () => {
+    const dist = createDist({ manifest: baseManifest() });
+    const archivePath = writeZipArchiveWithContents(dist, 'fixture.zip', {
+      'icons/icon-16.png': '-----BEGIN PRIVATE KEY-----'
+    });
+
+    try {
+      const result = runReport(['--dist', dist, '--archive', archivePath]);
+
+      expect(result.status).toBe(0);
+      expect(result.stdout + result.stderr).not.toContain('private-key');
     } finally {
       rmSync(dist, { recursive: true, force: true });
     }

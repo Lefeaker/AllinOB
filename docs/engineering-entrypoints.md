@@ -57,6 +57,9 @@
   - `build` 与 `build:firefox` 显式先运行一次 `quality`，随后调用 `scripts/build.mjs --skip-checks`，不得恢复为重复触发完整 `quality` 的形式
   - `scripts/build.mjs` 从 `package.json` 读取版本号，并注入 `__ZENDIO_EXTENSION_VERSION__` / `__AIIINOB_EXTENSION_VERSION__` 作为 Options 等无 platform manifest 场景的版本 fallback；不要在 UI 代码中硬编码 release version
   - `scripts/build.mjs` 支持 `--outdir` / `BUILD_DIST_DIR`；`scripts/package.mjs` 与 `scripts/package-firefox.mjs` 支持 `--dist-dir`
+  - `scripts/build.mjs` 支持 opt-in `--overlay-manifest <json>` owner overlay build；默认 public entrypoints / manifest / static assets 不变。Overlay manifest validation canonicalizes filesystem paths, constrains external roots, validates known entrypoint replacements, manifest patch files, static copy rules, recursive static-copy contents, critical overwrite allowlists, and the banned permission set `unlimitedStorage` / `message_serialization` / `tabCapture`.
+  - `tools/report-production-build-graph.mjs` 支持同一 `--overlay-manifest <json>`，让 production build graph、i18n copy audits 与 non-production-source gate 在 overlay mode 下看到实际 entrypoint graph；public default graph remains unchanged.
+  - `tools/report-release-surface.mjs` / `tools/audit-release-archive.mjs` continue to audit manifest references, dev/test harness leakage, pseudo-locale leakage, and secret-like files/content for both default and overlay build surfaces.
   - `build:chrome:isolated` / `build:firefox:isolated` 与 `package:chrome:isolated` / `package:firefox:isolated` 使用独立 dist 目录，作为 Chrome / Firefox package 并行化的安全入口
   - Firefox AMO 自动发布入口为 `.github/workflows/release-firefox-amo.yml`；该 workflow 在 tag `v*` 与手动触发时使用 repository secrets 注入 GA public config 与 AMO API credentials，运行 `analytics:validate:prod:required`、`build:firefox:prod:ga:ci`、生成并审计 AMO source archive、`web-ext` signing submission、GA secret / release-surface archive audits，并上传生成的 XPI 与 `build/firefox-source/**/*-source.zip` artifact
 - `.github/workflows/ci.yml`

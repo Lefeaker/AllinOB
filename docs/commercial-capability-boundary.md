@@ -36,6 +36,8 @@ This document defines the public Zendio boundary for trial packaging, capability
 - Public content startup accepts a generic restore policy provider through `src/content/runtime/contentRuntimeBootstrap.ts`. `src/content/index.ts` only performs public auto-start with `defaultRestoreCapabilityPolicyProvider`.
 - Public background startup accepts the same generic provider and passes its `videoScreenshotCache` snapshot to the runtime message listener.
 - Options runtime and app bootstraps accept an explicit Stitch assets provider. The public default provider imports `productionStitchAssets`; `__AIIINOB_TEST_STITCH_ASSETS__` remains a test fallback inside shell mounting only.
+- `scripts/build.mjs --overlay-manifest <json>` is a neutral owner overlay build mechanic. The public default build does not read an overlay manifest, and overlay validation must keep paths, manifest patches, static copy rules, release-surface visibility, and extension permissions fail-closed.
+- `tools/report-production-build-graph.mjs --overlay-manifest <json>` must be used with overlay builds so downstream source-surface audits inspect the actual owner-supplied entrypoint graph.
 
 ## Private-Owner Only Decisions
 

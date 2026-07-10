@@ -155,4 +155,26 @@ describe('release archive audit', () => {
       rmSync(dir, { recursive: true, force: true });
     }
   });
+
+  it('fails when the packaged archive contains secret-like files', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'aiiinob-release-archive-test-'));
+    const archive = writeZipArchive(
+      dir,
+      'secret.zip',
+      baseArchiveEntries({
+        '.env.production.local': 'TOKEN=secret',
+        'overlay-assets/signing-key.pem': '-----BEGIN PRIVATE KEY-----'
+      })
+    );
+
+    try {
+      const result = runAudit(archive);
+
+      expect(result.status).not.toBe(0);
+      expect(result.stdout + result.stderr).toContain('.env.production.local');
+      expect(result.stdout + result.stderr).toContain('signing-key.pem');
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
 });

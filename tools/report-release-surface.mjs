@@ -20,6 +20,15 @@ const FORBIDDEN_PSEUDO_LOCALE_CONTENT_PATTERNS = [
   { name: 'qps-ploc', pattern: /qps-ploc/ },
   { name: 'Çòːñƒ', pattern: /Çòːñƒ/ }
 ];
+const FORBIDDEN_SECRET_FILE_RE =
+  /(^|\/)(?:\.env(?:$|[./].*)|.*(?:id_rsa|id_dsa|id_ecdsa|id_ed25519|secret|token|credential|signing-key).*\.(?:json|txt|pem|key)|.*\.(?:pem|key|p12|pfx|crt|cer|der))$/i;
+const FORBIDDEN_SECRET_CONTENT_PATTERNS = [
+  { name: 'private-key', pattern: /-----BEGIN [A-Z ]*PRIVATE KEY-----/ },
+  {
+    name: 'ga-api-secret',
+    pattern: /\b(?:GA4_API_SECRET|ZENDIO_GA_API_SECRET|AIIINOB_GA_API_SECRET|api_secret)\b/
+  }
+];
 const SCANNED_CONTENT_EXTENSIONS = new Set(['.css', '.html', '.js', '.json']);
 
 function parseArgs(args) {
@@ -31,7 +40,7 @@ function parseArgs(args) {
 
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index];
-    if (arg === '--dist') {
+    if (arg === '--dist' || arg === '--dist-dir') {
       parsed.distDir = args[index + 1];
       index += 1;
     } else if (arg === '--archive') {
@@ -162,6 +171,10 @@ function shouldScanContent(path) {
   return !path.endsWith('.map') && SCANNED_CONTENT_EXTENSIONS.has(extname(path));
 }
 
+function shouldScanSecretContent(path) {
+  return shouldScanContent(path) || /\.(?:pem|key|txt)$/i.test(path);
+}
+
 function scanForbiddenPseudoLocaleContent(path, content) {
   if (!shouldScanContent(path)) {
     return [];
@@ -169,6 +182,20 @@ function scanForbiddenPseudoLocaleContent(path, content) {
   return FORBIDDEN_PSEUDO_LOCALE_CONTENT_PATTERNS.filter(({ pattern }) =>
     pattern.test(content)
   ).map(({ name }) => ({ path, pattern: name }));
+}
+
+function scanForbiddenSecretContent(path, content) {
+  if (!shouldScanSecretContent(path)) {
+    return [];
+  }
+  return FORBIDDEN_SECRET_CONTENT_PATTERNS.filter(({ pattern }) => pattern.test(content)).map(
+    ({ name }) => ({ path, pattern: name })
+  );
+}
+
+function shouldReadArchiveEntryContent(path) {
+  const normalized = normalizeManifestPath(path);
+  return shouldScanContent(normalized) || shouldScanSecretContent(normalized);
 }
 
 function parseZipEntries(archivePath) {
@@ -205,13 +232,15 @@ function parseZipEntries(archivePath) {
     const path = buffer.subarray(fileNameStart, fileNameEnd).toString('utf8');
     entries.push({
       path,
-      content: readZipEntryContent(buffer, {
-        archivePath,
-        compressedSize,
-        compressionMethod,
-        localHeaderOffset,
-        path
-      })
+      content: shouldReadArchiveEntryContent(path)
+        ? readZipEntryContent(buffer, {
+            archivePath,
+            compressedSize,
+            compressionMethod,
+            localHeaderOffset,
+            path
+          })
+        : null
     });
     offset = fileNameEnd + extraLength + commentLength;
   }
@@ -277,9 +306,15 @@ function buildReport({ distDir, archives }) {
   const forbiddenPseudoLocaleDistFiles = files.filter((file) =>
     FORBIDDEN_PSEUDO_LOCALE_RE.test(file)
   );
+  const forbiddenSecretDistFiles = files.filter((file) => FORBIDDEN_SECRET_FILE_RE.test(file));
   const forbiddenPseudoLocaleDistContent = files.flatMap((file) =>
     shouldScanContent(file)
       ? scanForbiddenPseudoLocaleContent(file, readFileSync(join(distDir, file), 'utf8'))
+      : []
+  );
+  const forbiddenSecretDistContent = files.flatMap((file) =>
+    shouldScanSecretContent(file)
+      ? scanForbiddenSecretContent(file, readFileSync(join(distDir, file), 'utf8'))
       : []
   );
 
@@ -291,9 +326,15 @@ function buildReport({ distDir, archives }) {
     ...forbiddenPseudoLocaleDistFiles.map(
       (file) => `forbidden dev-only pseudo-locale member in build/dist: ${file}`
     ),
+    ...forbiddenSecretDistFiles.map(
+      (file) => `forbidden secret-like member in build/dist: ${file}`
+    ),
     ...forbiddenPseudoLocaleDistContent.map(
       ({ path, pattern }) =>
         `forbidden dev-only pseudo-locale content in build/dist: ${path} (${pattern})`
+    ),
+    ...forbiddenSecretDistContent.map(
+      ({ path, pattern }) => `forbidden secret-like content in build/dist: ${path} (${pattern})`
     )
   );
 
@@ -307,10 +348,14 @@ function buildReport({ distDir, archives }) {
     const forbiddenPseudoLocaleEntries = entries.filter((entry) =>
       FORBIDDEN_PSEUDO_LOCALE_RE.test(entry)
     );
+    const forbiddenSecretEntries = entries.filter((entry) => FORBIDDEN_SECRET_FILE_RE.test(entry));
     const forbiddenPseudoLocaleContent = archiveEntries.flatMap((entry) =>
       typeof entry.content === 'string'
         ? scanForbiddenPseudoLocaleContent(entry.path, entry.content)
         : []
+    );
+    const forbiddenSecretContent = archiveEntries.flatMap((entry) =>
+      typeof entry.content === 'string' ? scanForbiddenSecretContent(entry.path, entry.content) : []
     );
     failures.push(
       ...forbiddenEntries.map(
@@ -319,9 +364,16 @@ function buildReport({ distDir, archives }) {
       ...forbiddenPseudoLocaleEntries.map(
         (entry) => `forbidden dev-only pseudo-locale member in archive ${archivePath}: ${entry}`
       ),
+      ...forbiddenSecretEntries.map(
+        (entry) => `forbidden secret-like member in archive ${archivePath}: ${entry}`
+      ),
       ...forbiddenPseudoLocaleContent.map(
         ({ path, pattern }) =>
           `forbidden dev-only pseudo-locale content in archive ${archivePath}: ${path} (${pattern})`
+      ),
+      ...forbiddenSecretContent.map(
+        ({ path, pattern }) =>
+          `forbidden secret-like content in archive ${archivePath}: ${path} (${pattern})`
       )
     );
     return {
@@ -329,7 +381,9 @@ function buildReport({ distDir, archives }) {
       entryCount: entries.length,
       forbiddenEntries,
       forbiddenPseudoLocaleEntries,
-      forbiddenPseudoLocaleContent
+      forbiddenPseudoLocaleContent,
+      forbiddenSecretContent,
+      forbiddenSecretEntries
     };
   });
 
@@ -341,6 +395,8 @@ function buildReport({ distDir, archives }) {
     forbiddenDistFiles,
     forbiddenPseudoLocaleDistFiles,
     forbiddenPseudoLocaleDistContent,
+    forbiddenSecretDistContent,
+    forbiddenSecretDistFiles,
     manifestReferences,
     archives: archiveReports,
     failures
@@ -382,6 +438,35 @@ function formatReport(report) {
       }
     } else {
       lines.push(`- ${archive.path}: none`);
+    }
+  }
+
+  lines.push('', '## Forbidden Secret-Like Members', '');
+  if (report.forbiddenSecretDistFiles?.length) {
+    for (const file of report.forbiddenSecretDistFiles) {
+      lines.push(`- build/dist: \`${file}\``);
+    }
+  } else {
+    lines.push('- build/dist: none');
+  }
+  if (report.forbiddenSecretDistContent?.length) {
+    for (const finding of report.forbiddenSecretDistContent) {
+      lines.push(`- build/dist content: \`${finding.path}\` (${finding.pattern})`);
+    }
+  }
+
+  for (const archive of report.archives ?? []) {
+    if (archive.forbiddenSecretEntries.length) {
+      for (const entry of archive.forbiddenSecretEntries) {
+        lines.push(`- ${archive.path}: \`${entry}\``);
+      }
+    } else {
+      lines.push(`- ${archive.path}: none`);
+    }
+    if (archive.forbiddenSecretContent.length) {
+      for (const finding of archive.forbiddenSecretContent) {
+        lines.push(`- ${archive.path} content: \`${finding.path}\` (${finding.pattern})`);
+      }
     }
   }
 

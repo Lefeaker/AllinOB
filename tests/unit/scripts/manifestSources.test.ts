@@ -60,4 +60,17 @@ describe('manifestSources', () => {
 
     expect(manifest.version).toBe('9.8.7');
   });
+
+  it('keeps public default manifests free of commercial storage and capture permissions', () => {
+    const browsers: Array<'chrome' | 'firefox'> = ['chrome', 'firefox'];
+
+    for (const browser of browsers) {
+      const manifest = createBrowserManifest(browser);
+      const manifestText = JSON.stringify(manifest);
+
+      expect(manifestText).not.toContain('unlimitedStorage');
+      expect(manifestText).not.toContain('message_serialization');
+      expect(manifestText).not.toContain('tabCapture');
+    }
+  });
 });
