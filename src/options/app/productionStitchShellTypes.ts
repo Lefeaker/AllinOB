@@ -3,7 +3,13 @@ import type { RuntimeService } from '@platform/interfaces/runtime';
 import type { IOptionsRepository, IMessagingRepository } from '@shared/repositories';
 import type { CompleteOptions, StoredOptions } from '@shared/types/options';
 import type { Language, Messages } from '@i18n';
-import type { PreviewContent, SchemaContext, ViewSchema } from '@options/stitch/types';
+import type { ActionRegistry } from '@options/schema-runtime/actionRuntime';
+import type {
+  PreviewContent,
+  PreviewStoreState,
+  SchemaContext,
+  ViewSchema
+} from '@options/stitch/types';
 import type { OptionsController } from './optionsController';
 import type { ProductionStitchAssetUrlResolver } from './productionStitchAssetUrlResolver';
 
@@ -33,5 +39,6 @@ export interface ProductionStitchShellDependencies {
   runtime?: Pick<RuntimeService, 'getURL' | 'getBrowserTarget'>;
   resolveAssetUrl?: ProductionStitchAssetUrlResolver;
   browserTarget?: SchemaContext['browserTarget'];
+  additionalActionHandlers?: ActionRegistry<PreviewStoreState, PreviewContent>;
   now?: () => number;
 }

@@ -1,5 +1,7 @@
 import { bootstrapOptionsApp, configureOptionsAppBootstrapStorage } from '@options/app/bootstrap';
 import type { ProductionStitchAssetsProvider } from '@options/app/productionStitchShellAssetResolver';
+import type { ActionRegistry } from '@options/schema-runtime/actionRuntime';
+import type { PreviewContent, PreviewStoreState } from '@options/stitch/types';
 import { registerFallbackRepositories, registerRepositories } from '@shared/di/serviceRegistry';
 import { createMemoryStorageService } from '@platform/preview/memoryStorage';
 import { createPreviewPlatformServices } from '@platform/preview/services';
@@ -13,6 +15,7 @@ export type OptionsRuntimePlatformServices = Pick<
 
 export interface OptionsRuntimeBootstrapDependencies {
   stitchAssetsProvider?: ProductionStitchAssetsProvider;
+  additionalActionHandlers?: ActionRegistry<PreviewStoreState, PreviewContent>;
 }
 
 export async function bootstrapOptionsRuntime(
@@ -59,6 +62,9 @@ export async function bootstrapOptionsRuntime(
     ...(runtime ? { runtime } : {}),
     ...(dependencies.stitchAssetsProvider
       ? { stitchAssetsProvider: dependencies.stitchAssetsProvider }
+      : {}),
+    ...(dependencies.additionalActionHandlers
+      ? { additionalActionHandlers: dependencies.additionalActionHandlers }
       : {})
   });
 }

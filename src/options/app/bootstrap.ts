@@ -12,6 +12,7 @@ import type { IOptionsRepository, IMessagingRepository } from '../../shared/repo
 import type { StoredOptions } from '../../shared/types/options';
 import type { RuntimeService } from '../../platform/interfaces/runtime';
 import type { StorageService } from '../../platform/interfaces/storage';
+import type { ActionRegistry } from '../schema-runtime/actionRuntime';
 import { showStatusMessage } from '../components/messages';
 import { createOptionsFormAdapter } from '../components/optionsFormAdapter';
 import { chromeOptionsPersistence } from '../services/persistence';
@@ -31,11 +32,13 @@ import {
   loadProductionStitchAssets,
   type ProductionStitchAssetsProvider
 } from './productionStitchShellAssetResolver';
+import type { PreviewContent, PreviewStoreState } from '../stitch/types';
 
 export interface OptionsAppBootstrapDependencies {
   storage: StorageService;
   runtime?: Pick<RuntimeService, 'getURL' | 'getBrowserTarget'>;
   stitchAssetsProvider?: ProductionStitchAssetsProvider;
+  additionalActionHandlers?: ActionRegistry<PreviewStoreState, PreviewContent>;
 }
 
 type CleanupFn = () => void;
@@ -65,6 +68,9 @@ function resolveOptionsAppBootstrapDependencies(
     ...(dependencies?.runtime ? { runtime: dependencies.runtime } : {}),
     ...(dependencies?.stitchAssetsProvider
       ? { stitchAssetsProvider: dependencies.stitchAssetsProvider }
+      : {}),
+    ...(dependencies?.additionalActionHandlers
+      ? { additionalActionHandlers: dependencies.additionalActionHandlers }
       : {})
   };
 }
@@ -129,6 +135,7 @@ export async function bootstrapOptionsApp(
   ensureUnloadCleanup();
 
   const {
+    additionalActionHandlers,
     storage,
     runtime,
     stitchAssetsProvider = loadProductionStitchAssets
@@ -155,6 +162,7 @@ export async function bootstrapOptionsApp(
     language: (resource?.language ?? 'zh-CN') as Language,
     ...(runtime ? { runtime } : {}),
     storage,
+    ...(additionalActionHandlers ? { additionalActionHandlers } : {}),
     optionsRepository: resolveRepository<IOptionsRepository>(DI_TOKENS.IOptionsRepository),
     messagingRepository: resolveRepository<IMessagingRepository>(DI_TOKENS.IMessagingRepository),
     changeLanguage: async (language) => {

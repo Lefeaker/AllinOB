@@ -47,6 +47,9 @@ describe('options runtime entry provider composition', () => {
 
   it('passes an explicit Stitch assets provider to the app bootstrap', async () => {
     const stitchAssetsProvider = vi.fn();
+    const additionalActionHandlers = {
+      'owner-extension:test': vi.fn()
+    };
     const platformServices = asType<OptionsRuntimePlatformServices>({
       storage: { sync: {}, local: {} },
       messaging: {},
@@ -55,13 +58,17 @@ describe('options runtime entry provider composition', () => {
     });
 
     const { bootstrapOptionsRuntime } = await import('../../../src/options/runtimeEntry');
-    await bootstrapOptionsRuntime(platformServices, { stitchAssetsProvider });
+    await bootstrapOptionsRuntime(platformServices, {
+      stitchAssetsProvider,
+      additionalActionHandlers
+    });
 
     expect(bootstrapOptionsAppMock).toHaveBeenCalledWith(
       expect.objectContaining({
         storage: platformServices.storage,
         runtime: platformServices.runtime,
-        stitchAssetsProvider
+        stitchAssetsProvider,
+        additionalActionHandlers
       })
     );
   });

@@ -29,6 +29,7 @@ import { createProductionStitchAssetUrlResolver } from './productionStitchAssetU
 
 export function mountProductionStitchShellFromDependencies({
   root,
+  additionalActionHandlers,
   controller,
   initialOptions = null,
   getFooterMeta,
@@ -164,6 +165,7 @@ export function mountProductionStitchShellFromDependencies({
     syncModifierControls,
     syncPreviewThemeControls,
     openResource,
+    ...(additionalActionHandlers ? { additionalActionHandlers } : {}),
     persistence,
     storageController,
     widgetHost

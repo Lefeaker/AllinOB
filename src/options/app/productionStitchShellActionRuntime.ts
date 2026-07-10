@@ -1,4 +1,5 @@
 import { createActionRuntime } from '@options/schema-runtime/actionRuntime';
+import type { ActionRegistry } from '@options/schema-runtime/actionRuntime';
 import type { Language, Messages } from '@i18n';
 import type { IOptionsRepository } from '@shared/repositories';
 import { createAnalyticsEventMessage } from '@shared/types/analytics';
@@ -58,6 +59,7 @@ interface ProductionStitchShellActionRuntimeOptions {
   persistence: ProductionStitchPersistence;
   storageController: ProductionStitchStorageController;
   widgetHost: ProductionStitchWidgetHost;
+  additionalActionHandlers?: ActionRegistry<PreviewStoreState, PreviewContent>;
 }
 
 export interface ProductionStitchShellActionRuntime {
@@ -228,6 +230,7 @@ export function createProductionStitchShellActionRuntime(
   options: ProductionStitchShellActionRuntimeOptions
 ): ProductionStitchShellActionRuntime {
   const {
+    additionalActionHandlers,
     buttonPressScrollGuard,
     changeLanguage,
     controller,
@@ -238,104 +241,104 @@ export function createProductionStitchShellActionRuntime(
     widgetHost
   } = options;
   const telemetry = createProductionOptionsTelemetry(persistence);
+  const productionHandlers = createProductionStitchActions({
+    getAppData: () => options.getAppData(),
+    getCurrentLanguage: () => options.getCurrentLanguage(),
+    getDraft: () => options.getDraft(),
+    getMessages: () => options.getCurrentMessages(),
+    getState: () => options.getState(),
+    setConnectionNotice: (notice) => options.setConnectionNotice(notice),
+    setLanguageResource: (resource) => options.setLanguageResource(resource),
+    setMaintenanceLog: (log) => options.setMaintenanceLog(log),
+    setState: (state) => options.setState(state),
+    activateVaultLocalFolder: (index) => storageController.activateVaultLocalFolder(index),
+    applyConnectionNotice: (result) => storageController.applyConnectionNotice(result),
+    applyOutputPreset: (name) =>
+      applyOutputPresetToDraft({
+        draft: options.getDraft(),
+        state: options.getState(),
+        setDomainMappingRows: (entries) => options.setDomainMappingRows(entries),
+        refreshAppData: () => options.refreshAppData(),
+        scheduleDraftSave: () => options.scheduleDraftSave(),
+        render: () => options.render(),
+        name
+      }),
+    applyTemplateStateToDraft: () =>
+      applyTemplateStateToDraft(options.getDraft(), options.getState()),
+    ...(changeLanguage ? { changeLanguage } : {}),
+    chooseVaultLocalFolder: (index) => storageController.chooseVaultLocalFolder(index),
+    clearAnalyticsPrivacyData: () => persistence.clearAnalyticsPrivacyData(),
+    clearVaultLocalFolder: (index) => storageController.clearVaultLocalFolder(index),
+    collectDraftWithWidgets: () => widgetHost.collectDraftWithWidgets(),
+    copyConfigurationToClipboard: (button) => persistence.copyConfigurationToClipboard(button),
+    currentDomainEntries: () => options.currentDomainEntries(),
+    eventButton,
+    ensureVaultRouter: () => storageController.ensureVaultRouter(),
+    importConfigurationWithStatus: (button) => persistence.importConfigurationWithStatus(button),
+    markWidgetDirty: (key) => widgetHost.markDirty(key),
+    openResource: (resourceId) => {
+      options.openResource(resourceId);
+      telemetry.trackResourceOpen(resourceId);
+    },
+    persistPrivacyPreference: (field, value) => persistence.persistPrivacyPreference(field, value),
+    persistThemePreference: (theme) => {
+      void optionsRepository.set({ interfaceTheme: theme } as Partial<CompleteOptions>);
+    },
+    refreshAppData: () => options.refreshAppData(),
+    render: () => options.render(),
+    renderActiveResourceModal: () => options.renderActiveResourceModal(),
+    repairConfiguration: async () => {
+      try {
+        await persistence.repairConfiguration();
+        telemetry.trackMaintenanceOutcome('maintenance:repair', 'completed');
+      } catch (error) {
+        telemetry.trackMaintenanceOutcome('maintenance:repair', 'failed');
+        throw error;
+      }
+    },
+    reloadOptions: async () => {
+      try {
+        const loaded = await controller.loadRaw();
+        options.refreshOptions(loaded);
+        telemetry.trackMaintenanceOutcome('maintenance:reload', 'completed');
+      } catch (error) {
+        telemetry.trackMaintenanceOutcome('maintenance:reload', 'failed');
+        throw error;
+      }
+    },
+    resetUsageData: () => persistence.resetUsageData(),
+    runVaultListConnectionTest: () => storageController.runVaultListConnectionTest(),
+    scheduleDraftSave: () => options.scheduleDraftSave(),
+    scrollToPanel: (panelId) => {
+      options.scrollToPanel(panelId);
+      telemetry.trackSectionView(panelId);
+    },
+    syncDomainEntries: (entries) => options.syncDomainEntries(entries),
+    syncHighlightThemeControls: () => options.syncHighlightThemeControls(),
+    syncModifierControls: () => options.syncModifierControls(),
+    syncPreviewThemeControls: () => options.syncPreviewThemeControls(),
+    syncRoutingRulesToDraft: () => storageController.syncRoutingRulesToDraft(),
+    trackExperimentalFeatureToggle: (featureKey, enabled) =>
+      telemetry.trackExperimentalFeatureToggle(featureKey, enabled),
+    trackLanguageChanged: (language) => telemetry.trackLanguageChanged(language),
+    trackThemeChanged: (theme) => telemetry.trackThemeChanged(theme),
+    updateClassifierField: (field, value) =>
+      updateClassifierField(
+        options.getDraft(),
+        options.getState(),
+        () => options.scheduleDraftSave(),
+        field,
+        value
+      ),
+    updateDraftPath: (path, value) =>
+      updateDraftPath(options.getDraft(), options.getState(), path, value),
+    updateVaultField: (index, field, value) =>
+      storageController.updateVaultField(index, field, value)
+  });
   const actionRuntime = createActionRuntime<PreviewStoreState, PreviewContent>({
     getContext: () => options.createSchemaContext(),
     mutate: (mutator, mutationOptions) => options.mutate(mutator, mutationOptions),
-    handlers: createProductionStitchActions({
-      getAppData: () => options.getAppData(),
-      getCurrentLanguage: () => options.getCurrentLanguage(),
-      getDraft: () => options.getDraft(),
-      getMessages: () => options.getCurrentMessages(),
-      getState: () => options.getState(),
-      setConnectionNotice: (notice) => options.setConnectionNotice(notice),
-      setLanguageResource: (resource) => options.setLanguageResource(resource),
-      setMaintenanceLog: (log) => options.setMaintenanceLog(log),
-      setState: (state) => options.setState(state),
-      activateVaultLocalFolder: (index) => storageController.activateVaultLocalFolder(index),
-      applyConnectionNotice: (result) => storageController.applyConnectionNotice(result),
-      applyOutputPreset: (name) =>
-        applyOutputPresetToDraft({
-          draft: options.getDraft(),
-          state: options.getState(),
-          setDomainMappingRows: (entries) => options.setDomainMappingRows(entries),
-          refreshAppData: () => options.refreshAppData(),
-          scheduleDraftSave: () => options.scheduleDraftSave(),
-          render: () => options.render(),
-          name
-        }),
-      applyTemplateStateToDraft: () =>
-        applyTemplateStateToDraft(options.getDraft(), options.getState()),
-      ...(changeLanguage ? { changeLanguage } : {}),
-      chooseVaultLocalFolder: (index) => storageController.chooseVaultLocalFolder(index),
-      clearAnalyticsPrivacyData: () => persistence.clearAnalyticsPrivacyData(),
-      clearVaultLocalFolder: (index) => storageController.clearVaultLocalFolder(index),
-      collectDraftWithWidgets: () => widgetHost.collectDraftWithWidgets(),
-      copyConfigurationToClipboard: (button) => persistence.copyConfigurationToClipboard(button),
-      currentDomainEntries: () => options.currentDomainEntries(),
-      eventButton,
-      ensureVaultRouter: () => storageController.ensureVaultRouter(),
-      importConfigurationWithStatus: (button) => persistence.importConfigurationWithStatus(button),
-      markWidgetDirty: (key) => widgetHost.markDirty(key),
-      openResource: (resourceId) => {
-        options.openResource(resourceId);
-        telemetry.trackResourceOpen(resourceId);
-      },
-      persistPrivacyPreference: (field, value) =>
-        persistence.persistPrivacyPreference(field, value),
-      persistThemePreference: (theme) => {
-        void optionsRepository.set({ interfaceTheme: theme } as Partial<CompleteOptions>);
-      },
-      refreshAppData: () => options.refreshAppData(),
-      render: () => options.render(),
-      renderActiveResourceModal: () => options.renderActiveResourceModal(),
-      repairConfiguration: async () => {
-        try {
-          await persistence.repairConfiguration();
-          telemetry.trackMaintenanceOutcome('maintenance:repair', 'completed');
-        } catch (error) {
-          telemetry.trackMaintenanceOutcome('maintenance:repair', 'failed');
-          throw error;
-        }
-      },
-      reloadOptions: async () => {
-        try {
-          const loaded = await controller.loadRaw();
-          options.refreshOptions(loaded);
-          telemetry.trackMaintenanceOutcome('maintenance:reload', 'completed');
-        } catch (error) {
-          telemetry.trackMaintenanceOutcome('maintenance:reload', 'failed');
-          throw error;
-        }
-      },
-      resetUsageData: () => persistence.resetUsageData(),
-      runVaultListConnectionTest: () => storageController.runVaultListConnectionTest(),
-      scheduleDraftSave: () => options.scheduleDraftSave(),
-      scrollToPanel: (panelId) => {
-        options.scrollToPanel(panelId);
-        telemetry.trackSectionView(panelId);
-      },
-      syncDomainEntries: (entries) => options.syncDomainEntries(entries),
-      syncHighlightThemeControls: () => options.syncHighlightThemeControls(),
-      syncModifierControls: () => options.syncModifierControls(),
-      syncPreviewThemeControls: () => options.syncPreviewThemeControls(),
-      syncRoutingRulesToDraft: () => storageController.syncRoutingRulesToDraft(),
-      trackExperimentalFeatureToggle: (featureKey, enabled) =>
-        telemetry.trackExperimentalFeatureToggle(featureKey, enabled),
-      trackLanguageChanged: (language) => telemetry.trackLanguageChanged(language),
-      trackThemeChanged: (theme) => telemetry.trackThemeChanged(theme),
-      updateClassifierField: (field, value) =>
-        updateClassifierField(
-          options.getDraft(),
-          options.getState(),
-          () => options.scheduleDraftSave(),
-          field,
-          value
-        ),
-      updateDraftPath: (path, value) =>
-        updateDraftPath(options.getDraft(), options.getState(), path, value),
-      updateVaultField: (index, field, value) =>
-        storageController.updateVaultField(index, field, value)
-    }),
+    handlers: mergeActionHandlers(productionHandlers, additionalActionHandlers),
     onUnhandledAction: () => {
       controller.scheduleAutoSave(() => options.getDraft());
     }
@@ -354,4 +357,27 @@ export function createProductionStitchShellActionRuntime(
   }
 
   return { dispatch };
+}
+
+function mergeActionHandlers(
+  productionHandlers: ActionRegistry<PreviewStoreState, PreviewContent>,
+  additionalActionHandlers: ActionRegistry<PreviewStoreState, PreviewContent> | undefined
+): ActionRegistry<PreviewStoreState, PreviewContent> {
+  if (!additionalActionHandlers) {
+    return productionHandlers;
+  }
+
+  const merged: ActionRegistry<PreviewStoreState, PreviewContent> = {
+    ...productionHandlers
+  };
+
+  for (const [actionId, handler] of Object.entries(additionalActionHandlers)) {
+    if (Object.prototype.hasOwnProperty.call(merged, actionId)) {
+      console.warn(`[Options] Ignoring additional Stitch action handler for "${actionId}".`);
+      continue;
+    }
+    merged[actionId] = handler;
+  }
+
+  return merged;
 }

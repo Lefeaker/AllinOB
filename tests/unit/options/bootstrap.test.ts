@@ -211,6 +211,22 @@ describe('options bootstrap', () => {
     );
   });
 
+  it('passes additional Stitch action handlers to the production shell', async () => {
+    const additionalActionHandlers = {
+      'owner-extension:test': vi.fn()
+    };
+
+    await bootstrapOptionsApp({
+      additionalActionHandlers
+    });
+
+    expect(mountProductionStitchShellMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        additionalActionHandlers
+      })
+    );
+  });
+
   it('cleans up the previous Stitch shell before a second bootstrap', async () => {
     await bootstrapOptionsApp();
     const cleanupCallsAfterFirstBootstrap = shellCleanupMock.mock.calls.length;

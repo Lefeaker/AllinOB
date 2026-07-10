@@ -227,6 +227,49 @@ describe('mountProductionStitchShell renderLifecycle', () => {
     expect(mounted.collectDraft().rest.vault).toBe('Alice Vault');
   });
 
+  it('dispatches additional owner-provided Stitch action handlers', () => {
+    const controller = createController();
+    const actionHandler = vi.fn();
+    mountProductionStitchShell({
+      controller: asOptionsController(controller),
+      initialOptions: null,
+      messages: null,
+      language: 'en',
+      additionalActionHandlers: {
+        'owner-extension:run': actionHandler
+      },
+      getSettingsView: (id, ctx) => {
+        const view = getSettingsView(id, ctx);
+        if (id !== 'overview' || !view) {
+          return view;
+        }
+        return {
+          ...view,
+          children: [
+            ...(view.children ?? []),
+            {
+              kind: 'button',
+              label: 'Run owner extension action',
+              action: { id: 'owner-extension:run' }
+            }
+          ]
+        };
+      },
+      getFooterMeta,
+      getFooterView,
+      previewContent
+    });
+
+    findButton('Run owner extension action').click();
+
+    expect(actionHandler).toHaveBeenCalledTimes(1);
+    expect(actionHandler.mock.calls[0]?.[0]).toEqual(
+      expect.objectContaining({
+        descriptor: { id: 'owner-extension:run', args: [] }
+      })
+    );
+  });
+
   it('prevents mouse button presses from moving the production Options scroller', async () => {
     const controller = createController();
     mountProductionStitchShell({
