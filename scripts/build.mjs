@@ -88,6 +88,7 @@ const CONTENT_LOADER_SOURCE = `
 
 const sharedBuildOptions = {
   bundle: true,
+  tsconfig: 'tsconfig.json',
   outdir: distDir,
   platform: 'browser',
   sourcemap: watch || !prod,

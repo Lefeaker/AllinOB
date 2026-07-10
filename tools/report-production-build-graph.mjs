@@ -61,6 +61,7 @@ function normalizeSourcePath(path, overlay) {
 function sharedBuildOptions() {
   return {
     bundle: true,
+    tsconfig: 'tsconfig.json',
     platform: 'browser',
     sourcemap: false,
     minify: true,
