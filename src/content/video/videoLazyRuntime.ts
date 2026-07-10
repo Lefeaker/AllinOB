@@ -17,6 +17,7 @@ export interface VideoLazyRuntimeDependencies {
   runtime?: Pick<RuntimeService, 'getURL'>;
   messaging?: Pick<MessagingService, 'send'>;
   sessionDraftStoragePolicy?: SessionDraftStoragePolicy;
+  getSessionDraftStoragePolicy?: () => SessionDraftStoragePolicy;
   showSupportProgress?: SupportProgressReporter;
 }
 
@@ -33,14 +34,14 @@ export function createVideoSessionAdapter(
   const getSession = async (): Promise<VideoSessionAdapter> => {
     if (!sessionPromise) {
       sessionPromise = Promise.resolve().then(() => {
+        const sessionDraftStoragePolicy =
+          dependencies.getSessionDraftStoragePolicy?.() ?? dependencies.sessionDraftStoragePolicy;
         const videoDependencies = createVideoSessionDependencies({
           optionsRepository: dependencies.optionsRepository,
           storage: dependencies.storage,
           ...(dependencies.runtime ? { runtime: dependencies.runtime } : {}),
           ...(dependencies.messaging ? { messaging: dependencies.messaging } : {}),
-          ...(dependencies.sessionDraftStoragePolicy
-            ? { sessionDraftStoragePolicy: dependencies.sessionDraftStoragePolicy }
-            : {}),
+          ...(sessionDraftStoragePolicy ? { sessionDraftStoragePolicy } : {}),
           ...(dependencies.showSupportProgress
             ? { showSupportProgress: dependencies.showSupportProgress }
             : {})
@@ -77,21 +78,22 @@ export async function initializeVideoPromptRuntime(
       storage: dependencies.storage,
       runtime: dependencies.runtime,
       createVideoSession: (doc) =>
-        new VideoSession(
-          doc,
-          createVideoSessionDependencies({
-            optionsRepository: dependencies.optionsRepository,
-            storage: dependencies.storage,
-            runtime: dependencies.runtime,
-            ...(dependencies.messaging ? { messaging: dependencies.messaging } : {}),
-            ...(dependencies.sessionDraftStoragePolicy
-              ? { sessionDraftStoragePolicy: dependencies.sessionDraftStoragePolicy }
-              : {}),
-            ...(dependencies.showSupportProgress
-              ? { showSupportProgress: dependencies.showSupportProgress }
-              : {})
-          })
-        )
+        new VideoSession(doc, createPromptVideoSessionDependencies(dependencies))
     })
   );
+}
+
+function createPromptVideoSessionDependencies(dependencies: VideoPromptRuntimeDependencies) {
+  const sessionDraftStoragePolicy =
+    dependencies.getSessionDraftStoragePolicy?.() ?? dependencies.sessionDraftStoragePolicy;
+  return createVideoSessionDependencies({
+    optionsRepository: dependencies.optionsRepository,
+    storage: dependencies.storage,
+    runtime: dependencies.runtime,
+    ...(dependencies.messaging ? { messaging: dependencies.messaging } : {}),
+    ...(sessionDraftStoragePolicy ? { sessionDraftStoragePolicy } : {}),
+    ...(dependencies.showSupportProgress
+      ? { showSupportProgress: dependencies.showSupportProgress }
+      : {})
+  });
 }

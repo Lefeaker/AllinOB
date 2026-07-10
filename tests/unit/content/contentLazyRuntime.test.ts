@@ -1,9 +1,24 @@
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { createSessionDraftStoragePolicy } from '@content/sessionDrafts';
 import {
+  createLazyReaderSessionFactory,
+  createLazyVideoSessionFactory,
   createLazyLocalVaultPermissionPrompt,
   createVideoPromptOnDemandInitializer,
   isVideoPromptCandidateUrl
 } from '../../../src/content/runtime/contentLazyRuntime';
+import type { SessionDraftStoragePolicy } from '../../../src/content/sessionDrafts';
+
+const createReaderSessionAdapterMock = vi.hoisted(() => vi.fn());
+const createVideoSessionAdapterMock = vi.hoisted(() => vi.fn());
+
+vi.mock('../../../src/content/reader/readerLazyRuntime', () => ({
+  createReaderSessionAdapter: createReaderSessionAdapterMock
+}));
+
+vi.mock('../../../src/content/video/videoLazyRuntime', () => ({
+  createVideoSessionAdapter: createVideoSessionAdapterMock
+}));
 
 function createDeps() {
   return {
@@ -14,6 +29,10 @@ function createDeps() {
 }
 
 describe('contentLazyRuntime video prompt gating', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
   it.each([
     'https://en.wikipedia.org/wiki/Artificial_intelligence',
     'https://medium.com/tag/artificial-intelligence',
@@ -87,5 +106,69 @@ describe('contentLazyRuntime video prompt gating', () => {
       folderName: 'Blog',
       vaultName: 'blog'
     });
+  });
+
+  it('resolves current policy for newly created lazy reader and video sessions', async () => {
+    const firstPolicy = createSessionDraftStoragePolicy({
+      retentionPolicy: {
+        retentionMs: 96 * 60 * 60 * 1000
+      }
+    });
+    const secondPolicy = createSessionDraftStoragePolicy({
+      retentionPolicy: {
+        retentionMs: 120 * 60 * 60 * 1000
+      }
+    });
+    let currentPolicy = firstPolicy;
+    const observedReaderPolicies: Array<SessionDraftStoragePolicy | undefined> = [];
+    const observedVideoPolicies: Array<SessionDraftStoragePolicy | undefined> = [];
+    createReaderSessionAdapterMock.mockImplementation((_doc, _url, deps) => {
+      observedReaderPolicies.push(
+        deps.getSessionDraftStoragePolicy?.() ?? deps.sessionDraftStoragePolicy
+      );
+      return {
+        start: vi.fn().mockResolvedValue(undefined),
+        ingestExternalHighlight: vi.fn()
+      };
+    });
+    createVideoSessionAdapterMock.mockImplementation((_doc, deps) => {
+      observedVideoPolicies.push(
+        deps.getSessionDraftStoragePolicy?.() ?? deps.sessionDraftStoragePolicy
+      );
+      return {
+        start: vi.fn().mockResolvedValue(undefined),
+        ingestTextCapture: vi.fn()
+      };
+    });
+    const sharedDependencies = {
+      document: {} as Document,
+      optionsRepository: {} as never,
+      storage: {} as never,
+      messaging: {} as never,
+      runtime: {} as never,
+      getSessionDraftStoragePolicy: () => currentPolicy
+    };
+    const createReaderSession = createLazyReaderSessionFactory({
+      ...sharedDependencies,
+      promptGateway: {} as never
+    });
+    const createVideoSession = createLazyVideoSessionFactory(sharedDependencies);
+
+    const firstReader = createReaderSession({} as Document, 'https://example.com/one');
+    const firstVideo = createVideoSession({} as Document);
+    await firstReader.start();
+    await firstVideo.start();
+
+    currentPolicy = secondPolicy;
+    await firstReader.start();
+    await firstVideo.start();
+    expect(observedReaderPolicies).toEqual([firstPolicy]);
+    expect(observedVideoPolicies).toEqual([firstPolicy]);
+
+    await createReaderSession({} as Document, 'https://example.com/two').start();
+    await createVideoSession({} as Document).start();
+
+    expect(observedReaderPolicies).toEqual([firstPolicy, secondPolicy]);
+    expect(observedVideoPolicies).toEqual([firstPolicy, secondPolicy]);
   });
 });

@@ -30,12 +30,18 @@ interface LazyRuntimeDependencies {
   messaging: Pick<MessagingService, 'send'>;
   runtime: RuntimeService;
   sessionDraftStoragePolicy?: SessionDraftStoragePolicy;
+  getSessionDraftStoragePolicy?: () => SessionDraftStoragePolicy;
   showSupportProgress?: SupportProgressReporter;
 }
 
 type VideoPromptOnDemandDependencies = Pick<
   LazyRuntimeDependencies,
-  'optionsRepository' | 'storage' | 'runtime' | 'sessionDraftStoragePolicy' | 'showSupportProgress'
+  | 'optionsRepository'
+  | 'storage'
+  | 'runtime'
+  | 'sessionDraftStoragePolicy'
+  | 'getSessionDraftStoragePolicy'
+  | 'showSupportProgress'
 > &
   Partial<Pick<LazyRuntimeDependencies, 'messaging'>>;
 
@@ -152,6 +158,9 @@ export function createLazyReaderSessionFactory(
             ...(dependencies.sessionDraftStoragePolicy
               ? { sessionDraftStoragePolicy: dependencies.sessionDraftStoragePolicy }
               : {}),
+            ...(dependencies.getSessionDraftStoragePolicy
+              ? { getSessionDraftStoragePolicy: dependencies.getSessionDraftStoragePolicy }
+              : {}),
             ...(dependencies.showSupportProgress
               ? { showSupportProgress: dependencies.showSupportProgress }
               : {})
@@ -200,6 +209,9 @@ export function createLazyVideoSessionFactory(
             messaging: dependencies.messaging,
             ...(dependencies.sessionDraftStoragePolicy
               ? { sessionDraftStoragePolicy: dependencies.sessionDraftStoragePolicy }
+              : {}),
+            ...(dependencies.getSessionDraftStoragePolicy
+              ? { getSessionDraftStoragePolicy: dependencies.getSessionDraftStoragePolicy }
               : {}),
             ...(dependencies.showSupportProgress
               ? { showSupportProgress: dependencies.showSupportProgress }

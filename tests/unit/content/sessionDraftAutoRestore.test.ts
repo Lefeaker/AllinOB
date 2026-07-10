@@ -28,6 +28,7 @@ function createHarness(
   initialUrl: string,
   options: {
     sessionDraftStoragePolicy?: SessionDraftStoragePolicy;
+    getSessionDraftStoragePolicy?: () => SessionDraftStoragePolicy;
   } = {}
 ) {
   document.body.innerHTML = '<main id="app">content</main>';
@@ -88,6 +89,9 @@ function createHarness(
         isVideoCandidateUrl,
         ...(options.sessionDraftStoragePolicy
           ? { sessionDraftStoragePolicy: options.sessionDraftStoragePolicy }
+          : {}),
+        ...(options.getSessionDraftStoragePolicy
+          ? { getSessionDraftStoragePolicy: options.getSessionDraftStoragePolicy }
           : {})
       })
   };
@@ -276,6 +280,49 @@ describe('sessionDraftAutoRestore', () => {
     });
 
     const stop = harness.start();
+    await flushAsyncWork();
+
+    expect(harness.readerStart).toHaveBeenCalledTimes(1);
+    expect(harness.videoStart).not.toHaveBeenCalled();
+    stop();
+  });
+
+  it('uses the latest generic storage policy when a later restore run creates its repository', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-06-22T08:00:00Z'));
+    const initialPolicy = createSessionDraftStoragePolicy({
+      retentionPolicy: {
+        retentionMs: 60 * 60 * 1000,
+        maxRestorablePages: null,
+        maxItemsPerPage: null
+      }
+    });
+    const extendedPolicy = createSessionDraftStoragePolicy({
+      retentionPolicy: {
+        retentionMs: 96 * 60 * 60 * 1000,
+        maxRestorablePages: null,
+        maxItemsPerPage: null
+      }
+    });
+    let currentPolicy = initialPolicy;
+    const url = 'https://example.com/article';
+    const harness = createHarness(url, {
+      getSessionDraftStoragePolicy: () => currentPolicy
+    });
+    harness.isReaderSessionActive.mockReturnValueOnce(true).mockReturnValue(false);
+    const staleUpdatedAt = Date.now() - 49 * 60 * 60 * 1000;
+    await seedStoredDraft(harness, {
+      ...createReaderDraftEnvelope(url, staleUpdatedAt),
+      expiresAt: Date.now() + 60_000
+    });
+
+    const stop = harness.start();
+    await flushAsyncWork();
+
+    expect(harness.readerStart).not.toHaveBeenCalled();
+
+    currentPolicy = extendedPolicy;
+    window.dispatchEvent(new Event('pageshow'));
     await flushAsyncWork();
 
     expect(harness.readerStart).toHaveBeenCalledTimes(1);

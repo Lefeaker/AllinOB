@@ -16,6 +16,7 @@ export interface ReaderLazyRuntimeDependencies {
   runtime: Pick<RuntimeService, 'getURL'>;
   promptGateway: ClipPromptGateway;
   sessionDraftStoragePolicy?: SessionDraftStoragePolicy;
+  getSessionDraftStoragePolicy?: () => SessionDraftStoragePolicy;
   showSupportProgress?: SupportProgressReporter;
 }
 
@@ -29,14 +30,14 @@ export function createReaderSessionAdapter(
   const getSession = async (): Promise<ReaderSessionAdapter> => {
     if (!sessionPromise) {
       sessionPromise = Promise.resolve().then(() => {
+        const sessionDraftStoragePolicy =
+          dependencies.getSessionDraftStoragePolicy?.() ?? dependencies.sessionDraftStoragePolicy;
         const readerDependencies = createReaderSessionDependencies({
           optionsRepository: dependencies.optionsRepository,
           storage: dependencies.storage,
           messaging: dependencies.messaging,
           runtime: dependencies.runtime,
-          ...(dependencies.sessionDraftStoragePolicy
-            ? { sessionDraftStoragePolicy: dependencies.sessionDraftStoragePolicy }
-            : {}),
+          ...(sessionDraftStoragePolicy ? { sessionDraftStoragePolicy } : {}),
           ...(dependencies.showSupportProgress
             ? { showSupportProgress: dependencies.showSupportProgress }
             : {})

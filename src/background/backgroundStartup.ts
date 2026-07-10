@@ -50,9 +50,8 @@ export function startBackgroundRuntime(dependencies: BackgroundStartupDependenci
     })
   );
 
-  const restoreStoragePolicy = (
-    dependencies.restoreStoragePolicyProvider ?? defaultRestoreCapabilityPolicyProvider
-  ).getCurrentPolicy();
+  const restoreStoragePolicyProvider =
+    dependencies.restoreStoragePolicyProvider ?? defaultRestoreCapabilityPolicyProvider;
 
   registerRuntimeMessageListener(
     createRuntimeMessageListenerDependencies(
@@ -60,7 +59,7 @@ export function startBackgroundRuntime(dependencies: BackgroundStartupDependenci
       dependencies.tabs,
       dependencies.runtime,
       dependencies.storage,
-      restoreStoragePolicy.videoScreenshotCache
+      restoreStoragePolicyProvider
     )
   );
 

@@ -73,6 +73,20 @@ const createContentRuntimeMock = vi.hoisted(() =>
 const createContentMessageRouterMock = vi.hoisted(() => vi.fn(() => ({ route: vi.fn() })));
 const startLazyDraftRestoreMock = vi.hoisted(() => vi.fn(() => vi.fn()));
 
+type RestorePolicyDependencyProbe = {
+  getSessionDraftStoragePolicy?: () => RestoreCapabilityPolicy;
+};
+
+function readFirstMockArgument<T>(mock: { mock: { calls: unknown } }): T | undefined {
+  const calls = mock.mock.calls as Array<[T]>;
+  return calls[0]?.[0];
+}
+
+function readSecondMockArgument<T>(mock: { mock: { calls: unknown } }): T | undefined {
+  const calls = mock.mock.calls as Array<[unknown, T]>;
+  return calls[0]?.[1];
+}
+
 vi.mock('../../../src/platform', () => ({
   getPlatformServices: getPlatformServicesMock
 }));
@@ -135,7 +149,7 @@ describe('content bootstrap provider composition', () => {
     document.body.innerHTML = '<main>content</main>';
   });
 
-  it('threads an injected restore policy snapshot into reader, video, prompt, and auto-restore dependencies', async () => {
+  it('threads an injected live restore policy source into reader, video, prompt, and auto-restore dependencies', async () => {
     const restorePolicy = createExtendedRestoreCapabilityPolicy({
       retentionPolicy: {
         retentionMs: 96 * 60 * 60 * 1000,
@@ -149,30 +163,51 @@ describe('content bootstrap provider composition', () => {
         maxContentBytes: 512 * 1024
       }
     });
+    const refreshedPolicy = createExtendedRestoreCapabilityPolicy({
+      retentionPolicy: {
+        retentionMs: 120 * 60 * 60 * 1000,
+        maxRestorablePages: null,
+        maxItemsPerPage: null
+      },
+      videoScreenshotCache: {
+        ttlMs: 120 * 60 * 60 * 1000,
+        maxGlobalEntries: 18,
+        maxPageEntries: 9,
+        maxContentBytes: 768 * 1024
+      }
+    });
+    let currentPolicy = restorePolicy;
     const restoreStoragePolicyProvider = {
-      getCurrentPolicy: vi.fn<() => RestoreCapabilityPolicy>(() => restorePolicy)
+      getCurrentPolicy: vi.fn<() => RestoreCapabilityPolicy>(() => currentPolicy)
     };
 
     const { initializeClipperRuntime } =
       await import('../../../src/content/runtime/contentRuntimeBootstrap');
     initializeClipperRuntime({ restoreStoragePolicyProvider });
 
-    expect(restoreStoragePolicyProvider.getCurrentPolicy).toHaveBeenCalledTimes(1);
-    expect(createLazyReaderSessionFactoryMock).toHaveBeenCalledWith(
-      expect.objectContaining({ sessionDraftStoragePolicy: restorePolicy })
+    const readerDependencies = readFirstMockArgument<RestorePolicyDependencyProbe>(
+      createLazyReaderSessionFactoryMock
     );
-    expect(createLazyVideoSessionFactoryMock).toHaveBeenCalledWith(
-      expect.objectContaining({ sessionDraftStoragePolicy: restorePolicy })
+    const videoDependencies = readFirstMockArgument<RestorePolicyDependencyProbe>(
+      createLazyVideoSessionFactoryMock
     );
-    expect(initializeVideoPromptOnDemandMock).toHaveBeenCalledWith(
-      expect.objectContaining({ sessionDraftStoragePolicy: restorePolicy }),
-      window.location.href
+    const promptDependencies = readFirstMockArgument<RestorePolicyDependencyProbe>(
+      initializeVideoPromptOnDemandMock
     );
-    expect(startLazyDraftRestoreMock).toHaveBeenCalledWith(
-      expect.any(Function),
-      expect.objectContaining({ sessionDraftStoragePolicy: restorePolicy }),
-      expect.any(Function)
-    );
+    const autoRestoreOptions =
+      readSecondMockArgument<RestorePolicyDependencyProbe>(startLazyDraftRestoreMock);
+
+    expect(readerDependencies?.getSessionDraftStoragePolicy?.()).toBe(restorePolicy);
+    expect(videoDependencies?.getSessionDraftStoragePolicy?.()).toBe(restorePolicy);
+    expect(promptDependencies?.getSessionDraftStoragePolicy?.()).toBe(restorePolicy);
+    expect(autoRestoreOptions?.getSessionDraftStoragePolicy?.()).toBe(restorePolicy);
+
+    currentPolicy = refreshedPolicy;
+
+    expect(readerDependencies?.getSessionDraftStoragePolicy?.()).toBe(refreshedPolicy);
+    expect(videoDependencies?.getSessionDraftStoragePolicy?.()).toBe(refreshedPolicy);
+    expect(promptDependencies?.getSessionDraftStoragePolicy?.()).toBe(refreshedPolicy);
+    expect(autoRestoreOptions?.getSessionDraftStoragePolicy?.()).toBe(refreshedPolicy);
   });
 
   it('imports the reusable bootstrap module without starting the public runtime', async () => {
@@ -193,20 +228,26 @@ describe('content bootstrap provider composition', () => {
 
     expect(createLazyReaderSessionFactoryMock).toHaveBeenCalledWith(
       expect.objectContaining({
-        sessionDraftStoragePolicy: DEFAULT_RESTORE_CAPABILITY_POLICY
+        getSessionDraftStoragePolicy: expect.any(Function)
       })
     );
     expect(createLazyVideoSessionFactoryMock).toHaveBeenCalledWith(
       expect.objectContaining({
-        sessionDraftStoragePolicy: DEFAULT_RESTORE_CAPABILITY_POLICY
+        getSessionDraftStoragePolicy: expect.any(Function)
       })
     );
     expect(startLazyDraftRestoreMock).toHaveBeenCalledWith(
       expect.any(Function),
       expect.objectContaining({
-        sessionDraftStoragePolicy: DEFAULT_RESTORE_CAPABILITY_POLICY
+        getSessionDraftStoragePolicy: expect.any(Function)
       }),
       expect.any(Function)
+    );
+    const readerDependencies = readFirstMockArgument<RestorePolicyDependencyProbe>(
+      createLazyReaderSessionFactoryMock
+    );
+    expect(readerDependencies?.getSessionDraftStoragePolicy?.()).toEqual(
+      DEFAULT_RESTORE_CAPABILITY_POLICY
     );
   });
 });
