@@ -162,5 +162,5 @@ function mergeOverlayRuntimeSnapshot(
   appData: PreviewContent,
   snapshot: OptionsOverlayAppDataSnapshot | undefined
 ): PreviewContent {
-  return snapshot ? { ...appData, ...snapshot } : appData;
+  return snapshot ? { ...snapshot, ...appData } : appData;
 }

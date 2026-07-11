@@ -11,16 +11,34 @@ export function createOptionsOverlayRuntimeState<Snapshot>(
 ): OptionsOverlayRuntimeStatePort<Snapshot> {
   let snapshot = initialSnapshot;
   const listeners = new Set<(value: Snapshot) => void>();
+  const pendingSnapshots: Snapshot[] = [];
+  let dispatching = false;
+
+  function setSnapshot(nextSnapshot: Snapshot): void {
+    const latestSnapshot = pendingSnapshots.at(-1) ?? snapshot;
+    if (Object.is(latestSnapshot, nextSnapshot)) {
+      return;
+    }
+    pendingSnapshots.push(nextSnapshot);
+    if (dispatching) {
+      return;
+    }
+
+    dispatching = true;
+    try {
+      while (pendingSnapshots.length > 0) {
+        const queuedSnapshot = pendingSnapshots.shift() as Snapshot;
+        snapshot = queuedSnapshot;
+        [...listeners].forEach((listener) => listener(queuedSnapshot));
+      }
+    } finally {
+      dispatching = false;
+    }
+  }
 
   return {
     getSnapshot: () => snapshot,
-    setSnapshot(nextSnapshot) {
-      if (Object.is(snapshot, nextSnapshot)) {
-        return;
-      }
-      snapshot = nextSnapshot;
-      listeners.forEach((listener) => listener(nextSnapshot));
-    },
+    setSnapshot,
     subscribe(listener) {
       listeners.add(listener);
       return () => listeners.delete(listener);

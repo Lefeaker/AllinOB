@@ -6,6 +6,7 @@ import {
   type OptionsOverlayRuntimeStatePort
 } from '@options/app/optionsOverlayRuntimeState';
 import { mountProductionStitchShell } from '@options/app/productionStitchShell';
+import { createProductionStitchShellMutableState } from '@options/app/productionStitchShellMutableState';
 import { getFooterMeta, getFooterView, getSettingsView } from '@options/stitch/schema/registry';
 import { previewContent } from '@options/stitch/content';
 import type { PreviewContent, SchemaContext } from '@options/stitch/types';
@@ -41,6 +42,50 @@ describe('Options overlay runtime state', () => {
     unsubscribe();
     state.setSnapshot({ ownerStatus: { state: 'after-cleanup' } });
     expect(listener).toHaveBeenCalledTimes(1);
+  });
+
+  it('serializes reentrant updates so every listener observes 1 then 2 consistently', () => {
+    const state = createOptionsOverlayRuntimeState(0);
+    const firstObservations: Array<[number, number]> = [];
+    const secondObservations: Array<[number, number]> = [];
+
+    state.subscribe((value) => {
+      firstObservations.push([value, state.getSnapshot()]);
+      if (value === 1) {
+        state.setSnapshot(2);
+      }
+    });
+    state.subscribe((value) => {
+      secondObservations.push([value, state.getSnapshot()]);
+    });
+
+    state.setSnapshot(1);
+
+    expect(firstObservations).toEqual([
+      [1, 1],
+      [2, 2]
+    ]);
+    expect(secondObservations).toEqual([
+      [1, 1],
+      [2, 2]
+    ]);
+  });
+
+  it('keeps public core app data authoritative while accepting neutral overlay keys', () => {
+    const overlayRuntimeState = createOptionsOverlayRuntimeState({
+      ownerStatus: { state: 'active' },
+      nav: []
+    });
+    const shellState = createProductionStitchShellMutableState({
+      previewContent,
+      language: 'en',
+      messages: null,
+      overlayRuntimeState
+    });
+    const appData = shellState.getAppData() as PreviewContent & OverlaySnapshot;
+
+    expect(appData.ownerStatus).toEqual({ state: 'active' });
+    expect(appData.nav).toEqual(previewContent.nav);
   });
 
   it('rerenders async updates, preserves them across localized copies and refresh, then unsubscribes on cleanup', async () => {
