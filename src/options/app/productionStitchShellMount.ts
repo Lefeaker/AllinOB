@@ -26,7 +26,6 @@ import { createProductionStitchShellRuntimeServices } from './productionStitchSh
 import { resolveProductionStitchAssets } from './productionStitchShellAssetResolver';
 import { createProductionStitchShellMutableState } from './productionStitchShellMutableState';
 import { createProductionStitchAssetUrlResolver } from './productionStitchAssetUrlResolver';
-
 export function mountProductionStitchShellFromDependencies({
   root,
   additionalActionHandlers,

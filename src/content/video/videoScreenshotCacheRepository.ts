@@ -150,6 +150,7 @@ function buildEntryMetadata(
       capturedAt: screenshot.capturedAt,
       createdAt: writeTime,
       updatedAt: writeTime,
+      lastAccessedAt: writeTime,
       expiresAt: writeTime + options.ttlMs
     },
     options

@@ -14,6 +14,7 @@ export function createMockPlatformServices(): PlatformServices {
     storage: {
       sync: {
         get: <T = unknown>() => Promise.resolve(undefined as T | undefined),
+        getAll: () => Promise.resolve({}),
         getMany: () => Promise.resolve({}),
         set: () => Promise.resolve(undefined),
         setMany: () => Promise.resolve(undefined),
@@ -24,6 +25,7 @@ export function createMockPlatformServices(): PlatformServices {
       },
       local: {
         get: <T = unknown>() => Promise.resolve(undefined as T | undefined),
+        getAll: () => Promise.resolve({}),
         getMany: () => Promise.resolve({}),
         set: () => Promise.resolve(undefined),
         setMany: () => Promise.resolve(undefined),
@@ -34,6 +36,7 @@ export function createMockPlatformServices(): PlatformServices {
       },
       session: {
         get: <T = unknown>() => Promise.resolve(undefined as T | undefined),
+        getAll: () => Promise.resolve({}),
         getMany: () => Promise.resolve({}),
         set: () => Promise.resolve(undefined),
         setMany: () => Promise.resolve(undefined),

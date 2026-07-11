@@ -56,6 +56,11 @@ function createMemoryStorageArea() {
     get<T = unknown>(key: string): Promise<T | undefined> {
       return Promise.resolve(cloneValue(store.get(key)) as T | undefined);
     },
+    getAll(): Promise<Record<string, unknown>> {
+      return Promise.resolve(
+        Object.fromEntries(Array.from(store.entries(), ([key, value]) => [key, cloneValue(value)]))
+      );
+    },
     set<T = unknown>(key: string, value: T): Promise<void> {
       const oldValue = store.get(key);
       store.set(key, cloneValue(value));

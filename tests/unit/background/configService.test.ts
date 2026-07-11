@@ -19,6 +19,7 @@ function createStorage(): StorageService {
   return {
     sync: {
       get: vi.fn(async () => undefined),
+      getAll: vi.fn(async () => ({})),
       getMany: vi.fn(async () => ({})),
       set: vi.fn(async () => undefined),
       setMany: vi.fn(async () => undefined),
@@ -29,6 +30,7 @@ function createStorage(): StorageService {
     },
     local: {
       get: getMock,
+      getAll: vi.fn(async () => ({})),
       set: setMock,
       getMany: vi.fn(async () => ({})),
       setMany: vi.fn(async () => undefined),
@@ -39,6 +41,7 @@ function createStorage(): StorageService {
     },
     session: {
       get: vi.fn(async () => undefined),
+      getAll: vi.fn(async () => ({})),
       getMany: vi.fn(async () => ({})),
       set: vi.fn(async () => undefined),
       setMany: vi.fn(async () => undefined),

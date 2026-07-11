@@ -9,18 +9,15 @@ import { ReactiveStore, type StateStore } from './ReactiveStore';
 
 type StorageAreaName = 'sync' | 'local' | 'session';
 type StoredValue = unknown;
-
 // 模块级别的单例实例
 let globalStateManagerInstance: GlobalStateManager | null = null;
 let globalStateManagerStorage: StorageService | null = null;
 let fallbackGlobalStateManagerStorage: StorageService | null = null;
-
 export interface SyncOptions<TStored, TMapped = TStored> {
   area?: StorageAreaName;
   deserialize?: (value: TStored | undefined) => TMapped | undefined;
   onError?: (error: unknown) => void;
 }
-
 type CleanupFn = () => void;
 
 interface GlobalStateEntry {
@@ -214,6 +211,9 @@ function createMemoryStorageArea(): StorageAreaService {
   const area: StorageAreaService = {
     async get<T = StoredValue>(key: string): Promise<T | undefined> {
       return toMappedValue<T>(values.get(key));
+    },
+    getAll(): Promise<Record<string, StoredValue>> {
+      return Promise.resolve(Object.fromEntries(values));
     },
     async set<T = StoredValue>(key: string, value: T): Promise<void> {
       const oldValue = values.get(key);

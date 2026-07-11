@@ -52,6 +52,10 @@ class MemoryStorageArea implements StorageAreaService {
     return Promise.resolve(castStoredValue<T>(this.values.get(key)));
   }
 
+  getAll(): Promise<Record<string, StoredValue>> {
+    return Promise.resolve(Object.fromEntries(this.values));
+  }
+
   set<T = StoredValue>(key: string, value: T): Promise<void> {
     this.values.set(key, value);
     return Promise.resolve();
@@ -133,6 +137,12 @@ class MemoryBlobStore implements VideoScreenshotCacheBlobStore {
       this.values.delete(key);
     }
     return Promise.resolve();
+  }
+
+  deleteAll(): Promise<number> {
+    const count = this.values.size;
+    this.values.clear();
+    return Promise.resolve(count);
   }
 
   async listByPageKey(pageKey: string): Promise<VideoScreenshotCacheBlobEntry[]> {

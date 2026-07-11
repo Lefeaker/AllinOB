@@ -10,6 +10,7 @@ function createStorageService(): StorageService {
     get: vi.fn(
       async <T>(key: string) => localStore.get(key) as T | undefined
     ) as StorageAreaService['get'],
+    getAll: vi.fn(async () => Object.fromEntries(localStore)) as StorageAreaService['getAll'],
     set: vi.fn(async <T>(key: string, value: T) => {
       localStore.set(key, value);
     }) as StorageAreaService['set'],
@@ -32,6 +33,7 @@ function createStorageService(): StorageService {
 
   const sync: StorageAreaService = {
     get: vi.fn(async <T>() => undefined as T | undefined) as StorageAreaService['get'],
+    getAll: vi.fn(async () => ({})) as StorageAreaService['getAll'],
     set: vi.fn(async <T>(_key: string, _value: T) => undefined) as StorageAreaService['set'],
     getMany: vi.fn(
       async <T>() => ({}) as Record<string, T | undefined>

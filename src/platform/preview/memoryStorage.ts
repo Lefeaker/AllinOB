@@ -1,11 +1,14 @@
-import type { StorageAreaService, StorageService } from '../interfaces/storage';
+import type { StorageAreaService, StorageRecord, StorageService } from '../interfaces/storage';
 
 export function createMemoryStorageArea(): StorageAreaService {
-  const values = new Map<string, unknown>();
+  const values = new Map<string, StorageRecord[string]>();
 
   return {
     get<T = unknown>(key: string): Promise<T | undefined> {
       return Promise.resolve(values.get(key) as T | undefined);
+    },
+    getAll(): Promise<StorageRecord> {
+      return Promise.resolve(Object.fromEntries(values));
     },
     set<T = unknown>(key: string, value: T): Promise<void> {
       values.set(key, value);

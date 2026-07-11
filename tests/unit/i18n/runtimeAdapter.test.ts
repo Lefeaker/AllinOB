@@ -17,6 +17,7 @@ function createStorageArea(initial: Record<string, unknown> = {}): StorageAreaSe
     get: vi.fn(<T>(key: string) =>
       Promise.resolve(store.get(key) as T | undefined)
     ) as StorageAreaService['get'],
+    getAll: vi.fn(() => Promise.resolve(Object.fromEntries(store))) as StorageAreaService['getAll'],
     set: vi.fn(<T>(key: string, value: T) => {
       store.set(key, value);
       return Promise.resolve();

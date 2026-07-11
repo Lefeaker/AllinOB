@@ -2,7 +2,8 @@ import type {
   StorageAreaService,
   StorageService,
   StorageChange,
-  StorageChangeCallback
+  StorageChangeCallback,
+  StorageRecord
 } from '../interfaces/storage';
 import { ensureChrome, getChromeLastError, normalizePromise } from './utils';
 
@@ -31,6 +32,28 @@ function createStorageArea(area: StorageAreaName): StorageAreaService {
         }
       });
       return result[key];
+    },
+
+    getAll(): Promise<StorageRecord> {
+      const chromeApi = ensureChrome();
+      const areaApi = chromeApi.storage?.[area];
+      if (!areaApi) {
+        throw new Error(`chrome.storage.${area} is unavailable`);
+      }
+      return normalizePromise<StorageRecord>((resolve, reject) => {
+        try {
+          areaApi.get(null, (items) => {
+            const error = getChromeLastError();
+            if (error) {
+              reject(error);
+              return;
+            }
+            resolve(items);
+          });
+        } catch (error) {
+          reject(error instanceof Error ? error : new Error(String(error)));
+        }
+      });
     },
 
     async getMany<T = unknown>(keys: string[]): Promise<Record<string, T | undefined>> {

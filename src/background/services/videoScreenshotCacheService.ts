@@ -4,6 +4,7 @@ import {
 } from '../../shared/attachments/clipAttachmentBinary';
 import type { StorageAreaService } from '../../platform/interfaces/storage';
 import type { VideoScreenshotCacheRepository } from '../../content/video/videoScreenshotCacheRepository';
+import { isRestoreStorageMaintenanceMessage } from '../../content/sessionDrafts/restoreStorageMaintenanceMessages';
 import {
   normalizeVideoScreenshotCacheMessage,
   type SerializedVideoScreenshotCacheScreenshot,
@@ -13,6 +14,12 @@ import {
 import type { VideoScreenshotCacheBlobStore } from '../../content/video/videoScreenshotCacheStore';
 import type { VideoCaptureScreenshot } from '../../content/video/types';
 import type { VideoScreenshotCacheIndexedDbStoreOptions } from './videoScreenshotCacheIndexedDbStore';
+import { createVideoScreenshotCacheIndexedDbStore } from './videoScreenshotCacheIndexedDbStore';
+import {
+  createStorageEstimateService,
+  type StorageEstimateService
+} from './storageEstimateService';
+import { handleRestoreStorageMaintenanceMessage } from './restoreStorageMaintenanceHandler';
 import {
   createVideoScreenshotCachePolicyRuntime,
   type BackgroundVideoScreenshotCachePolicyInput
@@ -21,16 +28,15 @@ import {
 export interface BackgroundVideoScreenshotCacheStorage {
   local: StorageAreaService;
 }
-
 export interface BackgroundVideoScreenshotCacheHandlerDependencies {
   blobStore?: VideoScreenshotCacheBlobStore;
   indexedDb?: VideoScreenshotCacheIndexedDbStoreOptions['indexedDb'];
+  storageEstimate?: StorageEstimateService;
 }
 
 export type BackgroundVideoScreenshotCacheHandler = (
   message: unknown
 ) => Promise<VideoScreenshotCacheResponse | undefined>;
-
 function errorMessage(error: Error | string): string {
   return error instanceof Error ? error.message : error;
 }
@@ -41,7 +47,6 @@ function toMessageError(error: Error | string): VideoScreenshotCacheResponse {
     error: errorMessage(error)
   };
 }
-
 function toSaveSkip(error: Error | string): VideoScreenshotCacheResponse {
   return {
     success: true,
@@ -53,7 +58,6 @@ function toSaveSkip(error: Error | string): VideoScreenshotCacheResponse {
     }
   };
 }
-
 function toLoadMissing(): VideoScreenshotCacheResponse {
   return {
     success: true,
@@ -61,7 +65,6 @@ function toLoadMissing(): VideoScreenshotCacheResponse {
     status: 'missing'
   };
 }
-
 function deserializeScreenshot(
   screenshot: SerializedVideoScreenshotCacheScreenshot
 ): VideoCaptureScreenshot {
@@ -90,7 +93,6 @@ function deserializeScreenshot(
     }
   };
 }
-
 async function serializeScreenshot(
   screenshot: VideoCaptureScreenshot
 ): Promise<SerializedVideoScreenshotCacheScreenshot> {
@@ -118,7 +120,17 @@ export function createBackgroundVideoScreenshotCacheHandler(
     ...(dependencies.blobStore ? { blobStore: dependencies.blobStore } : {}),
     ...(dependencies.indexedDb ? { indexedDb: dependencies.indexedDb } : {})
   });
-
+  let maintenanceBlobStore = dependencies.blobStore;
+  const storageEstimate = dependencies.storageEstimate ?? createStorageEstimateService();
+  function getMaintenanceBlobStore(
+    maxContentBytes: number | undefined
+  ): VideoScreenshotCacheBlobStore {
+    maintenanceBlobStore ??= createVideoScreenshotCacheIndexedDbStore({
+      indexedDb: dependencies.indexedDb,
+      maxContentBytes
+    });
+    return maintenanceBlobStore;
+  }
   function enqueue<Result>(operation: () => Promise<Result>): Promise<Result> {
     const run = queue.then(operation, operation);
     queue = run.then(
@@ -127,7 +139,6 @@ export function createBackgroundVideoScreenshotCacheHandler(
     );
     return run;
   }
-
   async function handleSave(
     message: Extract<VideoScreenshotCacheMessage, { operation: 'save' }>,
     cacheRepository: VideoScreenshotCacheRepository
@@ -155,7 +166,6 @@ export function createBackgroundVideoScreenshotCacheHandler(
       result
     };
   }
-
   async function handleLoad(
     message: Extract<VideoScreenshotCacheMessage, { operation: 'load' }>,
     cacheRepository: VideoScreenshotCacheRepository
@@ -184,8 +194,17 @@ export function createBackgroundVideoScreenshotCacheHandler(
 
   async function handleMessage(
     message: VideoScreenshotCacheMessage,
-    cacheRepository: VideoScreenshotCacheRepository
+    cacheRepository: VideoScreenshotCacheRepository,
+    blobStore: VideoScreenshotCacheBlobStore
   ): Promise<VideoScreenshotCacheResponse> {
+    if (isRestoreStorageMaintenanceMessage(message)) {
+      return handleRestoreStorageMaintenanceMessage(message, {
+        local: storage.local,
+        blobStore,
+        estimate: storageEstimate,
+        policyInput
+      });
+    }
     switch (message.operation) {
       case 'save':
         return handleSave(message, cacheRepository);
@@ -216,7 +235,13 @@ export function createBackgroundVideoScreenshotCacheHandler(
     }
 
     try {
-      return await enqueue(() => handleMessage(message, policyRuntime.getRepository(options)));
+      return await enqueue(() =>
+        handleMessage(
+          message,
+          policyRuntime.getRepository(options),
+          getMaintenanceBlobStore(options.maxContentBytes)
+        )
+      );
     } catch (error) {
       return toMessageError(error instanceof Error ? error : String(error));
     }

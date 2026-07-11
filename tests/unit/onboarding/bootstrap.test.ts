@@ -146,6 +146,7 @@ async function waitForSentMessage(
 function createStorageAreaMock() {
   return {
     get: vi.fn(() => Promise.resolve(undefined)),
+    getAll: vi.fn(() => Promise.resolve({})),
     set: vi.fn(() => Promise.resolve(undefined)),
     getMany: vi.fn(() => Promise.resolve({})),
     setMany: vi.fn(() => Promise.resolve(undefined)),

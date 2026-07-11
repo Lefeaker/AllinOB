@@ -3,7 +3,8 @@ import type {
   StorageAreaService,
   StorageChange,
   StorageService,
-  StorageChangeCallback
+  StorageChangeCallback,
+  StorageRecord
 } from '../interfaces/storage';
 import { ensureFirefox } from './utils';
 
@@ -56,6 +57,11 @@ function createFirefoxStorageArea(areaName: FirefoxStorageAreaName): StorageArea
       const area = ensureStorageArea(areaName);
       const result = await area.get(key);
       return (result as Record<string, T | undefined>)[key];
+    },
+
+    getAll(): Promise<StorageRecord> {
+      const area = ensureStorageArea(areaName);
+      return area.get(null);
     },
 
     async set<T = unknown>(key: string, value: T): Promise<void> {

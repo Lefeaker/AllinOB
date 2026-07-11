@@ -376,6 +376,41 @@ describe('videoScreenshotCacheIndexedDbStore', () => {
     expect((await store.listAllMetadata()).map((entry) => entry.key)).toEqual([newer.key]);
   });
 
+  it('touches last access time on load and deletes all entries with idempotent count semantics', async () => {
+    const indexedDb = new FakeIndexedDbFactory();
+    let now = BASE_TIME + 500;
+    const store = createVideoScreenshotCacheIndexedDbStore({ indexedDb, now: () => now });
+    const first = createEntry({ captureId: 'capture-first', id: 'shot-first' }, 'first');
+    const second = createEntry({ captureId: 'capture-second', id: 'shot-second' }, 'second');
+    await store.put(first);
+    await store.put(second);
+
+    expect((await store.get(first.key))?.lastAccessedAt).toBe(now);
+    now += 100;
+    expect((await store.get(first.key))?.lastAccessedAt).toBe(now);
+    await expect(store.deleteAll()).resolves.toBe(2);
+    await expect(store.deleteAll()).resolves.toBe(0);
+    await expect(store.listAllMetadata()).resolves.toEqual([]);
+  });
+
+  it('fails closed when deleting all without IndexedDB availability', async () => {
+    const store = createVideoScreenshotCacheIndexedDbStore({
+      indexedDb: undefined
+    });
+    const originalIndexedDb = globalThis.indexedDB;
+    Object.defineProperty(globalThis, 'indexedDB', { configurable: true, value: undefined });
+    try {
+      await expect(store.deleteAll()).rejects.toThrow(
+        'IndexedDB is not available for video screenshot cache storage.'
+      );
+    } finally {
+      Object.defineProperty(globalThis, 'indexedDB', {
+        configurable: true,
+        value: originalIndexedDb
+      });
+    }
+  });
+
   it('prunes expired and over-limit entries while removing deleted keys from IndexedDB', async () => {
     const indexedDb = new FakeIndexedDbFactory();
     const store = createVideoScreenshotCacheIndexedDbStore({ indexedDb });

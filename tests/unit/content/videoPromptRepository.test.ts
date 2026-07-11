@@ -36,6 +36,7 @@ const {
 function createStorageArea(): StorageAreaService {
   return {
     get: vi.fn().mockResolvedValue(undefined),
+    getAll: vi.fn().mockResolvedValue({}),
     set: vi.fn().mockResolvedValue(undefined),
     getMany: vi.fn().mockResolvedValue({}),
     setMany: vi.fn().mockResolvedValue(undefined),

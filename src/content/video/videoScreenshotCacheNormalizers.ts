@@ -93,16 +93,25 @@ export function normalizeVideoScreenshotCacheIndexEntry(
   }
   const createdAt = normalizeTimestamp(value.createdAt);
   const updatedAt = normalizeTimestamp(value.updatedAt);
+  const lastAccessedAt =
+    value.lastAccessedAt === undefined ? undefined : normalizeTimestamp(value.lastAccessedAt);
   if (
     createdAt === null ||
     updatedAt === null ||
+    lastAccessedAt === null ||
     createdAt < ref.capturedAt ||
     updatedAt < createdAt ||
+    (lastAccessedAt !== undefined && lastAccessedAt < createdAt) ||
     ref.expiresAt <= updatedAt
   ) {
     return null;
   }
-  return { ...ref, createdAt, updatedAt };
+  return {
+    ...ref,
+    createdAt,
+    updatedAt,
+    ...(lastAccessedAt !== undefined ? { lastAccessedAt } : {})
+  };
 }
 
 export function isVideoScreenshotCacheIndex(value: Raw): value is VideoScreenshotCacheIndex {

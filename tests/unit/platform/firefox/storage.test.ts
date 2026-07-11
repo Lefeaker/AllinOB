@@ -28,7 +28,9 @@ describe('firefoxStorageService', () => {
     vi.resetModules();
     vi.clearAllMocks();
     changeListener = undefined;
-    firefoxApi.storage.local.get.mockResolvedValue({ key: 'value' });
+    firefoxApi.storage.local.get.mockImplementation((key?: string | string[] | null) =>
+      Promise.resolve(key == null ? { key: 'value', second: 2 } : { key: 'value' })
+    );
     firefoxApi.storage.local.set.mockResolvedValue(undefined);
     firefoxApi.storage.local.remove.mockResolvedValue(undefined);
     firefoxApi.storage.local.clear.mockResolvedValue(undefined);
@@ -37,6 +39,10 @@ describe('firefoxStorageService', () => {
   it('reads writes and watches firefox storage', async () => {
     const { firefoxStorageService } = await import('../../../../src/platform/firefox/storage');
     await expect(firefoxStorageService.local.get('key')).resolves.toBe('value');
+    await expect(firefoxStorageService.local.getAll()).resolves.toEqual({
+      key: 'value',
+      second: 2
+    });
     await firefoxStorageService.local.set('key', 'next');
     await firefoxStorageService.local.remove('key');
     await firefoxStorageService.local.clear();

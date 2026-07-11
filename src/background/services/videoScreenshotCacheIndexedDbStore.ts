@@ -31,12 +31,14 @@ import type {
 export interface VideoScreenshotCacheIndexedDbStoreOptions {
   indexedDb?: VideoScreenshotCacheIndexedDbFactory | undefined;
   maxContentBytes?: number | undefined;
+  now?: (() => number) | undefined;
 }
 
 export function createVideoScreenshotCacheIndexedDbStore(
   options: VideoScreenshotCacheIndexedDbStoreOptions = {}
 ): VideoScreenshotCacheBlobStore {
   const indexedDb = options.indexedDb;
+  const now = options.now ?? (() => Date.now());
   const maxContentBytes = normalizeVideoScreenshotCacheMaxContentBytes(options.maxContentBytes);
   const validationOptions = { maxContentBytes };
   const readAllEntries = (store: VideoScreenshotCacheIndexedDbObjectStore) =>
@@ -72,7 +74,15 @@ export function createVideoScreenshotCacheIndexedDbStore(
         }
         const entry = normalizeVideoScreenshotCacheBlobEntry(rawValue, validationOptions);
         if (entry !== null) {
-          return entry;
+          const touched = {
+            ...entry,
+            lastAccessedAt: Math.max(now(), entry.lastAccessedAt ?? entry.updatedAt)
+          } satisfies VideoScreenshotCacheBlobEntry;
+          await requestToPromise(
+            store.put(touched),
+            'Failed to update video screenshot cache blob access time.'
+          );
+          return touched;
         }
         await deleteKeys(store, [key]);
         return null;
@@ -90,6 +100,20 @@ export function createVideoScreenshotCacheIndexedDbStore(
       if (uniqueKeys.length > 0) {
         await withStore('readwrite', indexedDb, (store) => deleteKeys(store, uniqueKeys));
       }
+    },
+
+    async deleteAll() {
+      return withStore('readwrite', indexedDb, async (store) => {
+        const rawValues = await requestToRecordArray(
+          store,
+          'Failed to enumerate video screenshot cache blob rows for deletion.'
+        );
+        const keys = sanitizeKeys(
+          rawValues.map((rawValue) => extractKey(rawValue)).filter(isNonEmptyString)
+        );
+        await deleteKeys(store, keys);
+        return keys.length;
+      });
     },
 
     async listByPageKey(pageKey) {

@@ -35,8 +35,10 @@ describe('chromeStorageService', () => {
     vi.clearAllMocks();
     changeListener = undefined;
     chromeApi.storage.local.get.mockImplementation(
-      (key: string | string[], cb: (items: Record<string, unknown>) => void) =>
-        cb({ [Array.isArray(key) ? key[0] : key]: 'value' })
+      (key: string | string[] | null, cb: (items: Record<string, unknown>) => void) =>
+        key === null
+          ? cb({ key: 'value', second: 2 })
+          : cb({ [Array.isArray(key) ? key[0] : key]: 'value' })
     );
     chromeApi.storage.local.set.mockImplementation(
       (_entries: Record<string, unknown>, cb: () => void) => cb()
@@ -50,6 +52,7 @@ describe('chromeStorageService', () => {
   it('reads writes and watches local storage', async () => {
     const { chromeStorageService } = await import('../../../../src/platform/chrome/storage');
     await expect(chromeStorageService.local.get('key')).resolves.toBe('value');
+    await expect(chromeStorageService.local.getAll()).resolves.toEqual({ key: 'value', second: 2 });
     await chromeStorageService.local.set('key', 'next');
     await chromeStorageService.local.remove('key');
     await chromeStorageService.local.clear();

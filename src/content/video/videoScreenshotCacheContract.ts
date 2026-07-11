@@ -34,6 +34,7 @@ export interface VideoScreenshotCacheRef extends VideoScreenshotCacheIdentity {
 export interface VideoScreenshotCacheIndexEntry extends VideoScreenshotCacheRef {
   createdAt: number;
   updatedAt: number;
+  lastAccessedAt?: number;
 }
 
 export interface VideoScreenshotCacheIndex {

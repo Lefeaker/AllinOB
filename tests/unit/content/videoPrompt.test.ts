@@ -299,6 +299,7 @@ type TestDeps = {
 
 const createStorageAreaStub = (): StorageAreaService => {
   const get: StorageAreaService['get'] = () => Promise.resolve(undefined);
+  const getAll: StorageAreaService['getAll'] = () => Promise.resolve({});
   const set: StorageAreaService['set'] = () => Promise.resolve(undefined);
   const getMany: StorageAreaService['getMany'] = () => Promise.resolve({});
   const setMany: StorageAreaService['setMany'] = () => Promise.resolve(undefined);
@@ -315,7 +316,7 @@ const createStorageAreaStub = (): StorageAreaService => {
   };
   const watchAll: StorageAreaService['watchAll'] = () => vi.fn();
 
-  return { get, set, getMany, setMany, remove, clear, watchKey, watchAll };
+  return { get, getAll, set, getMany, setMany, remove, clear, watchKey, watchAll };
 };
 
 function createTestDependencies(): TestDeps & VideoPromptDependencies {

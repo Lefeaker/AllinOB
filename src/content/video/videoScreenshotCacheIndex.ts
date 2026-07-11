@@ -128,6 +128,7 @@ export function requireVideoScreenshotCacheIndexEntry(
     capturedAt: number;
     createdAt: number;
     updatedAt: number;
+    lastAccessedAt?: number;
     expiresAt: number;
   },
   options: VideoScreenshotCacheContentValidationOptions = {}

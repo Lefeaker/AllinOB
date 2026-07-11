@@ -35,6 +35,7 @@ export interface VideoScreenshotCacheBlobStore {
   get(key: string): Promise<VideoScreenshotCacheBlobEntry | null>;
   delete(key: string): Promise<void>;
   deleteMany(keys: readonly string[]): Promise<void>;
+  deleteAll(): Promise<number>;
   listByPageKey(pageKey: string): Promise<VideoScreenshotCacheBlobEntry[]>;
   listAllMetadata(): Promise<VideoScreenshotCacheBlobMetadata[]>;
   prune(

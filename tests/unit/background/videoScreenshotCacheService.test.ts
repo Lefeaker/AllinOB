@@ -49,6 +49,12 @@ class MemoryBlobStore implements VideoScreenshotCacheBlobStore {
     return Promise.resolve();
   }
 
+  deleteAll(): Promise<number> {
+    const count = this.values.size;
+    this.values.clear();
+    return Promise.resolve(count);
+  }
+
   listByPageKey(pageKey: string): Promise<VideoScreenshotCacheBlobEntry[]> {
     return Promise.resolve(this.sortedEntries().filter((entry) => entry.pageKey === pageKey));
   }
@@ -131,6 +137,7 @@ function createNoopBlobStore(): VideoScreenshotCacheBlobStore {
     get: () => Promise.resolve(null),
     delete: () => Promise.resolve(),
     deleteMany: () => Promise.resolve(),
+    deleteAll: () => Promise.resolve(0),
     listByPageKey: () => Promise.resolve([]),
     listAllMetadata: () => Promise.resolve([]),
     prune: () =>
@@ -252,5 +259,121 @@ describe('videoScreenshotCacheService', () => {
     });
 
     expect(blobStore.snapshotIds()).toEqual(['newest']);
+  });
+
+  it('schema-validates clearAllRestoreData and removes only restore storage', async () => {
+    const local = createMemoryStorageArea();
+    const blobStore = new MemoryBlobStore();
+    const draftKey = 'aiob.sessionDraft.v1.reader.page-a.draft-a';
+    await local.setMany({
+      [draftKey]: { malformed: true },
+      ordinary: { keep: true }
+    });
+    const { createBackgroundVideoScreenshotCacheHandler } =
+      await import('../../../src/background/services/videoScreenshotCacheService');
+    const handler = createBackgroundVideoScreenshotCacheHandler(
+      { local },
+      { maxContentBytes: 64 },
+      { blobStore }
+    );
+    await saveScreenshot(handler, { id: 'clear-me', content: 'frame' });
+
+    await expect(
+      handler({
+        type: VIDEO_SCREENSHOT_CACHE_MESSAGE,
+        operation: 'clearAllRestoreData'
+      })
+    ).resolves.toEqual({
+      success: true,
+      operation: 'clearAllRestoreData',
+      result: {
+        draftKeysRemoved: 1,
+        screenshotEntriesRemoved: 1,
+        legacyScreenshotKeysRemoved: 0
+      }
+    });
+    expect(blobStore.snapshotIds()).toEqual([]);
+    await expect(local.get('ordinary')).resolves.toEqual({ keep: true });
+    await expect(
+      handler({ type: VIDEO_SCREENSHOT_CACHE_MESSAGE, operation: 'clearRestoreData' })
+    ).resolves.toBeUndefined();
+  });
+
+  it('serializes clear after an in-flight screenshot save', async () => {
+    const events: string[] = [];
+    let releasePut: (() => void) | undefined;
+    const putGate = new Promise<void>((resolve) => {
+      releasePut = resolve;
+    });
+    class OrderedBlobStore extends MemoryBlobStore {
+      override async put(entry: VideoScreenshotCacheBlobEntry): Promise<void> {
+        events.push('save:start');
+        await putGate;
+        await super.put(entry);
+        events.push('save:end');
+      }
+
+      override async deleteAll(): Promise<number> {
+        events.push('clear');
+        return super.deleteAll();
+      }
+    }
+    const blobStore = new OrderedBlobStore();
+    const { createBackgroundVideoScreenshotCacheHandler } =
+      await import('../../../src/background/services/videoScreenshotCacheService');
+    const handler = createBackgroundVideoScreenshotCacheHandler(
+      { local: createMemoryStorageArea() },
+      { maxContentBytes: 64 },
+      { blobStore }
+    );
+
+    const save = saveScreenshot(handler, { id: 'ordered', content: 'frame' });
+    await vi.waitFor(() => expect(events).toEqual(['save:start']));
+    const clear = handler({
+      type: VIDEO_SCREENSHOT_CACHE_MESSAGE,
+      operation: 'clearAllRestoreData'
+    });
+    await Promise.resolve();
+    expect(events).toEqual(['save:start']);
+    releasePut?.();
+    await Promise.all([save, clear]);
+    expect(events).toEqual(['save:start', 'save:end', 'clear']);
+    expect(blobStore.snapshotIds()).toEqual([]);
+  });
+
+  it('routes sanitized pressure inspection and cleanup through the serialized owner', async () => {
+    const blobStore = new MemoryBlobStore();
+    const getSnapshot = vi.fn(() =>
+      Promise.resolve({ usage: 950, quota: 1_000, available: 50, supported: true })
+    );
+    const { createBackgroundVideoScreenshotCacheHandler } =
+      await import('../../../src/background/services/videoScreenshotCacheService');
+    const handler = createBackgroundVideoScreenshotCacheHandler(
+      { local: createMemoryStorageArea() },
+      { maxContentBytes: 64 },
+      { blobStore, storageEstimate: { getSnapshot } }
+    );
+
+    await expect(
+      handler({
+        type: VIDEO_SCREENSHOT_CACHE_MESSAGE,
+        operation: 'inspectStoragePressure'
+      })
+    ).resolves.toMatchObject({
+      success: true,
+      operation: 'inspectStoragePressure',
+      result: { triggered: true, reason: 'pressure-detected' }
+    });
+    await expect(
+      handler({
+        type: VIDEO_SCREENSHOT_CACHE_MESSAGE,
+        operation: 'runStoragePressureCleanup'
+      })
+    ).resolves.toMatchObject({
+      success: true,
+      operation: 'runStoragePressureCleanup',
+      result: { triggered: true, reason: 'cleanup-exhausted' }
+    });
+    expect(getSnapshot).toHaveBeenCalledTimes(2);
   });
 });

@@ -29,18 +29,19 @@ import { DEFAULT_RUNTIME_MESSAGES } from '@i18n';
 
 type HarnessStorageValue = Parameters<StorageAreaService['set']>[1];
 const status = document.getElementById('status');
-
 function setStatus(message: string): void {
   if (status) {
     status.textContent = message;
   }
 }
-
 function createStorageArea(): StorageAreaService {
   const values = new Map<string, HarnessStorageValue>();
   return {
     get<T>(key: string): Promise<T | undefined> {
       return Promise.resolve(values.get(key) as T | undefined);
+    },
+    getAll(): Promise<Record<string, HarnessStorageValue>> {
+      return Promise.resolve(Object.fromEntries(values));
     },
     set<T>(key: string, value: T): Promise<void> {
       values.set(key, value);
@@ -71,7 +72,6 @@ function createStorageArea(): StorageAreaService {
     }
   };
 }
-
 const storage: StorageService = {
   local: createStorageArea(),
   sync: createStorageArea(),

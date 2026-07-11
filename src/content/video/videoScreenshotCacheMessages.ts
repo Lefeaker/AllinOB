@@ -11,9 +11,13 @@ import {
   type VideoScreenshotCacheRef
 } from './videoScreenshotCacheTypes';
 import type { VideoCaptureScreenshot } from './types';
+import {
+  isRestoreStorageMaintenanceOperation,
+  type RestoreStorageMaintenanceMessage,
+  type RestoreStorageMaintenanceResponse
+} from '../sessionDrafts/restoreStorageMaintenanceMessages';
 
 export const VIDEO_SCREENSHOT_CACHE_MESSAGE = 'AIIOB_VIDEO_SCREENSHOT_CACHE';
-
 const VIDEO_SCREENSHOT_CACHE_SCHEMA_VERSION = 1;
 const VIDEO_SCREENSHOT_CACHE_KEY_PREFIX = 'aiob.videoScreenshotCache';
 const VIDEO_SCREENSHOT_CACHE_KEY_VERSION_PREFIX = `${VIDEO_SCREENSHOT_CACHE_KEY_PREFIX}.v${VIDEO_SCREENSHOT_CACHE_SCHEMA_VERSION}.`;
@@ -27,7 +31,6 @@ export interface SerializedVideoScreenshotCacheScreenshot {
   content?: SerializedClipAttachmentBinaryContent;
   dataUrl?: string;
 }
-
 export type VideoScreenshotCacheMessage =
   | {
       type: typeof VIDEO_SCREENSHOT_CACHE_MESSAGE;
@@ -53,10 +56,8 @@ export type VideoScreenshotCacheMessage =
       operation: 'removeMany';
       refs: VideoScreenshotCacheRef[];
     }
-  | {
-      type: typeof VIDEO_SCREENSHOT_CACHE_MESSAGE;
-      operation: 'pruneExpired' | 'pruneToLimits';
-    };
+  | { type: typeof VIDEO_SCREENSHOT_CACHE_MESSAGE; operation: 'pruneExpired' | 'pruneToLimits' }
+  | RestoreStorageMaintenanceMessage;
 
 export type VideoScreenshotCacheResponse =
   | {
@@ -79,15 +80,14 @@ export type VideoScreenshotCacheResponse =
       success: true;
       operation: 'remove' | 'removeMany' | 'pruneExpired' | 'pruneToLimits';
     }
+  | RestoreStorageMaintenanceResponse
   | {
       success: false;
       error: string;
     };
-
 function normalizeNonEmptyString(value: RuntimePropertyValue): string | null {
   return typeof value === 'string' && value.length > 0 ? value : null;
 }
-
 function normalizeTimestamp(value: RuntimePropertyValue): number | null {
   return typeof value === 'number' &&
     Number.isInteger(value) &&
@@ -96,7 +96,6 @@ function normalizeTimestamp(value: RuntimePropertyValue): number | null {
     ? value
     : null;
 }
-
 function normalizeByteLength(
   value: RuntimePropertyValue,
   options: VideoScreenshotCacheContentValidationOptions
@@ -109,12 +108,10 @@ function normalizeByteLength(
     ? value
     : null;
 }
-
 function normalizePageKey(value: RuntimePropertyValue): string | null {
   const normalized = normalizeNonEmptyString(value);
   return normalized !== null && PAGE_KEY_PATTERN.test(normalized) ? normalized : null;
 }
-
 function createExpectedVideoScreenshotCacheStorageKey(options: {
   pageKey: string;
   captureId: string;
@@ -124,7 +121,6 @@ function createExpectedVideoScreenshotCacheStorageKey(options: {
     options.pageKey
   )}.${encodeURIComponent(options.captureId)}.${encodeURIComponent(options.screenshotId)}`;
 }
-
 function isVideoScreenshotCacheRefMessage(
   value: RuntimePropertyValue,
   options: VideoScreenshotCacheContentValidationOptions
@@ -167,7 +163,6 @@ function isVideoScreenshotCacheRefMessage(
     })
   );
 }
-
 function normalizeSerializedScreenshot(
   value: RuntimePropertyValue,
   options: VideoScreenshotCacheContentValidationOptions
@@ -238,7 +233,11 @@ export function isVideoScreenshotCacheMessage<T>(
     );
   }
 
-  return value.operation === 'pruneExpired' || value.operation === 'pruneToLimits';
+  return (
+    value.operation === 'pruneExpired' ||
+    value.operation === 'pruneToLimits' ||
+    isRestoreStorageMaintenanceOperation(value.operation)
+  );
 }
 
 export function normalizeVideoScreenshotCacheMessage<T>(

@@ -52,6 +52,14 @@ class InMemoryStorageArea implements StorageAreaService {
     return Promise.resolve(value);
   }
 
+  getAll(): Promise<StorageRecord> {
+    return Promise.resolve(
+      Object.fromEntries(
+        Array.from(this.data.entries(), ([key, value]) => [key, structuredClone(value)])
+      )
+    );
+  }
+
   getMany<T = unknown>(keys: string[]): Promise<Record<string, T | undefined>> {
     const result: Record<string, T | undefined> = {};
     for (const key of keys) {
