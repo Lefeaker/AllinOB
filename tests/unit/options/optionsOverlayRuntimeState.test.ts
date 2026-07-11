@@ -71,6 +71,42 @@ describe('Options overlay runtime state', () => {
     ]);
   });
 
+  it('isolates listener failures while draining queued and later updates', () => {
+    const state = createOptionsOverlayRuntimeState(0);
+    const listenerError = new Error('listener failed');
+    const reportError = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const firstObservations: number[] = [];
+    const secondObservations: number[] = [];
+
+    state.subscribe((value) => {
+      firstObservations.push(value);
+      if (value === 1) {
+        state.setSnapshot(2);
+        throw listenerError;
+      }
+    });
+    state.subscribe((value) => {
+      secondObservations.push(value);
+    });
+
+    expect(() => state.setSnapshot(1)).not.toThrow();
+    expect(state.getSnapshot()).toBe(2);
+    expect(firstObservations).toEqual([1, 2]);
+    expect(secondObservations).toEqual([1, 2]);
+    expect(reportError).toHaveBeenCalledWith(
+      '[options-overlay-runtime] Listener failed:',
+      listenerError
+    );
+
+    state.setSnapshot(2);
+    state.setSnapshot(3);
+    expect(state.getSnapshot()).toBe(3);
+    expect(firstObservations).toEqual([1, 2, 3]);
+    expect(secondObservations).toEqual([1, 2, 3]);
+
+    reportError.mockRestore();
+  });
+
   it('keeps public core app data authoritative while accepting neutral overlay keys', () => {
     const overlayRuntimeState = createOptionsOverlayRuntimeState({
       ownerStatus: { state: 'active' },

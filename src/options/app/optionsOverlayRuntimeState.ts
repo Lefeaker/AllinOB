@@ -29,7 +29,13 @@ export function createOptionsOverlayRuntimeState<Snapshot>(
       while (pendingSnapshots.length > 0) {
         const queuedSnapshot = pendingSnapshots.shift() as Snapshot;
         snapshot = queuedSnapshot;
-        [...listeners].forEach((listener) => listener(queuedSnapshot));
+        for (const listener of [...listeners]) {
+          try {
+            listener(queuedSnapshot);
+          } catch (error) {
+            reportListenerFailure(error);
+          }
+        }
       }
     } finally {
       dispatching = false;
@@ -44,4 +50,12 @@ export function createOptionsOverlayRuntimeState<Snapshot>(
       return () => listeners.delete(listener);
     }
   };
+}
+
+function reportListenerFailure(error: unknown): void {
+  try {
+    console.error('[options-overlay-runtime] Listener failed:', error);
+  } catch {
+    // Error reporting must not interrupt snapshot delivery.
+  }
 }
