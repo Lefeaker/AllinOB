@@ -154,10 +154,13 @@ export function normalizeVideoScreenshotCacheMessage<T>(
   }
 
   if (!isRestoreStorageMaintenanceMessage(record)) return null;
-  if (record.operation === 'clearAllRestoreData') {
+  if (
+    record.operation === 'clearAllRestoreData' ||
+    record.operation === 'pruneRestoreDataToCurrentPolicy'
+  ) {
     return {
       type: VIDEO_SCREENSHOT_CACHE_MESSAGE,
-      operation: 'clearAllRestoreData',
+      operation: record.operation,
       operationId: record.operationId
     };
   }

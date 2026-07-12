@@ -9,6 +9,8 @@ import type { RestoreCapabilityPolicyProvider } from '../../shared/capabilities/
 import type { BackgroundVideoScreenshotCachePolicyInput } from './videoScreenshotCachePolicyRuntime';
 import type { StorageEstimateService } from './storageEstimateService';
 import { createRestoreStoragePressureService } from './restoreStoragePressureService';
+import { createRestoreDataPolicyPruneService } from './restoreDataPolicyPruneService';
+import { buildRestoreStorageProtectionInventory } from './restoreStorageProtectionInventory';
 import type {
   SessionDraftDeletionRequest,
   SessionDraftDeletionResult
@@ -27,6 +29,7 @@ export interface RestoreStorageMaintenanceHandlerDependencies {
   ): Promise<
     Extract<RestoreStorageMaintenanceResponse, { operation: 'clearAllRestoreData' }>['result']
   >;
+  getCurrentEpoch(): Promise<number>;
 }
 
 export async function handleRestoreStorageMaintenanceMessage(
@@ -38,6 +41,27 @@ export async function handleRestoreStorageMaintenanceMessage(
       success: true,
       operation: message.operation,
       result: await dependencies.clearRestoreData(message.operationId)
+    };
+  }
+
+  if (message.operation === 'pruneRestoreDataToCurrentPolicy') {
+    const prune = createRestoreDataPolicyPruneService({
+      drafts: dependencies.local,
+      screenshots: dependencies.blobStore,
+      deleteScreenshotCandidates: (keys) => dependencies.deleteScreenshotCandidates(keys),
+      deleteDraftCandidates: (request) => dependencies.deleteDraftCandidates(request),
+      getProtectedDraftKeys: async () =>
+        (
+          await buildRestoreStorageProtectionInventory(dependencies.local, {
+            currentEpoch: await dependencies.getCurrentEpoch()
+          })
+        ).pendingDraftKeys,
+      getStoragePolicy: () => resolveRestoreStoragePolicy(dependencies.policyInput)
+    });
+    return {
+      success: true,
+      operation: message.operation,
+      result: await prune.prune(message.operationId)
     };
   }
 

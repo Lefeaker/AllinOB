@@ -89,7 +89,10 @@ class MemoryBlobStore implements VideoScreenshotCacheBlobStore {
     return Promise.resolve();
   });
 
-  constructor(value: VideoScreenshotCacheRef) {
+  constructor(
+    value: VideoScreenshotCacheRef,
+    private readonly onListAllMetadata?: () => void
+  ) {
     this.values.set(value.key, {
       ...metadata(value),
       blob: new Blob(['frame'], { type: value.mimeType })
@@ -120,6 +123,7 @@ class MemoryBlobStore implements VideoScreenshotCacheBlobStore {
     });
   }
   listAllMetadata(): ReturnType<VideoScreenshotCacheBlobStore['listAllMetadata']> {
+    this.onListAllMetadata?.();
     return Promise.resolve({ entries: [...this.values.values()].map(toMetadata), invalidKeys: [] });
   }
   prune(): ReturnType<VideoScreenshotCacheBlobStore['prune']> {
@@ -148,6 +152,108 @@ function pressureEstimate() {
 }
 
 describe('restore storage production concurrency composition', () => {
+  it('policy prune final owner read protects a ref committed after orphan selection', async () => {
+    const memory = createMemoryStorageArea();
+    const screenshotRef = ref('policy-prune-late-ref');
+    const draftKey = createSessionDraftStorageKey(draft(screenshotRef));
+    let candidateSelected = false;
+    let postSelectionReads = 0;
+    let signalStaleJournalRead!: () => void;
+    let releaseStaleJournalRead!: () => void;
+    const staleJournalReadStarted = new Promise<void>((resolve) => {
+      signalStaleJournalRead = resolve;
+    });
+    const staleJournalReadGate = new Promise<void>((resolve) => {
+      releaseStaleJournalRead = resolve;
+    });
+    const pruneLocal = {
+      ...memory,
+      async getAll() {
+        if (!candidateSelected) return memory.getAll();
+        postSelectionReads += 1;
+        if (postSelectionReads !== 2) return memory.getAll();
+        const staleSnapshot = await memory.getAll();
+        signalStaleJournalRead();
+        await staleJournalReadGate;
+        return staleSnapshot;
+      }
+    };
+    const blobStore = new MemoryBlobStore(screenshotRef, () => {
+      candidateSelected = true;
+    });
+    const pruneHandler = createBackgroundVideoScreenshotCacheHandler(
+      { local: pruneLocal },
+      {},
+      { blobStore, getEpoch: () => 7 }
+    );
+
+    const pruning = pruneHandler({
+      type: VIDEO_SCREENSHOT_CACHE_MESSAGE,
+      operation: 'pruneRestoreDataToCurrentPolicy',
+      operationId: 'policy-prune-late-ref'
+    });
+    await staleJournalReadStarted;
+    expect(blobStore.deleteMany).not.toHaveBeenCalled();
+
+    const writerHandler = createBackgroundVideoScreenshotCacheHandler(
+      { local: memory },
+      {},
+      { blobStore, getEpoch: () => 7 }
+    );
+    const prepared = await writerHandler({
+      type: VIDEO_SCREENSHOT_CACHE_MESSAGE,
+      operation: 'prepareSessionDraftOperation',
+      operationId: 'policy-prune-late-writer',
+      draftKey
+    });
+    if (!prepared || !('context' in prepared)) throw new Error('expected prepared context');
+    const saved = await writerHandler({
+      type: VIDEO_SCREENSHOT_CACHE_MESSAGE,
+      operation: 'save',
+      input: {
+        pageKey: screenshotRef.pageKey,
+        captureId: screenshotRef.captureId,
+        operationContext: prepared.context,
+        screenshot: {
+          id: screenshotRef.id,
+          fileName: screenshotRef.fileName,
+          mimeType: screenshotRef.mimeType,
+          capturedAt: screenshotRef.capturedAt,
+          content: await serializeBlobAttachmentContent(
+            new Blob(['frame'], { type: screenshotRef.mimeType })
+          )
+        }
+      }
+    });
+    if (
+      !saved ||
+      !('result' in saved) ||
+      !saved.result ||
+      !('status' in saved.result) ||
+      saved.result.status !== 'saved'
+    ) {
+      throw new Error('expected saved screenshot');
+    }
+    await expect(
+      writerHandler({
+        type: VIDEO_SCREENSHOT_CACHE_MESSAGE,
+        operation: 'saveSessionDraft',
+        context: prepared.context,
+        envelope: draft(saved.result.ref)
+      })
+    ).resolves.toMatchObject({ success: true });
+    releaseStaleJournalRead();
+
+    await expect(pruning).resolves.toMatchObject({
+      success: true,
+      operation: 'pruneRestoreDataToCurrentPolicy',
+      result: { newlyOrphanedScreenshots: 0 }
+    });
+    expect(postSelectionReads).toBe(3);
+    expect(blobStore.values.has(screenshotRef.key)).toBe(true);
+    expect(blobStore.deleteMany).not.toHaveBeenCalled();
+  });
+
   it('re-reads protection after pressure selection and keeps late durable draft authority', async () => {
     const memory = createMemoryStorageArea();
     const screenshotRef = ref('queue');

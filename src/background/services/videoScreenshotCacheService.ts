@@ -54,9 +54,7 @@ import {
   toVideoScreenshotCacheMessageError
 } from './videoScreenshotCacheServiceErrors';
 import { consumeMatchingRestoreStorageLease } from './restoreStorageLeaseStore';
-export interface BackgroundVideoScreenshotCacheStorage {
-  local: StorageAreaService;
-}
+export type BackgroundVideoScreenshotCacheStorage = { local: StorageAreaService };
 export interface BackgroundVideoScreenshotCacheHandlerDependencies {
   blobStore?: VideoScreenshotCacheBlobMaintenanceStore;
   indexedDb?: VideoScreenshotCacheIndexedDbStoreOptions['indexedDb'];
@@ -141,7 +139,8 @@ export function createBackgroundVideoScreenshotCacheHandler(
         policyInput,
         deleteScreenshotCandidates: deleteCandidates,
         deleteDraftCandidates,
-        clearRestoreData: (operationId) => clearOwner.clear(operationId)
+        clearRestoreData: (operationId) => clearOwner.clear(operationId),
+        getCurrentEpoch
       });
     }
     if (

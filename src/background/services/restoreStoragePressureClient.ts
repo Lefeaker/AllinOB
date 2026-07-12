@@ -21,7 +21,11 @@ export function createRestoreStoragePressureClient(
       operation
     });
     const normalized = normalizeRestoreStorageMaintenanceResponse(response, operation);
-    if (!normalized || normalized.operation === 'clearAllRestoreData') {
+    if (
+      !normalized ||
+      (normalized.operation !== 'inspectStoragePressure' &&
+        normalized.operation !== 'runStoragePressureCleanup')
+    ) {
       throw new Error(RESTORE_STORAGE_PRESSURE_FAILED);
     }
     return normalized.result;

@@ -1,8 +1,18 @@
 import { readExactOwnDataRecord } from '../../shared/guards/exactOwnDataRecord';
 import type { RuntimePropertyValue } from '../../shared/guards/object';
+import {
+  normalizeRestoreDataPolicyPruneResult,
+  type RestoreDataPolicyPruneMessageResult
+} from './restoreDataPolicyPruneMessages';
+import { isRestoreDataPolicyPruneOperationId } from './restoreDataPolicyPruneOperationId';
+export {
+  RESTORE_DATA_POLICY_PRUNE_FAILED,
+  type RestoreDataPolicyPruneMessageResult
+} from './restoreDataPolicyPruneMessages';
 
 export type RestoreStorageMaintenanceOperation =
   | 'clearAllRestoreData'
+  | 'pruneRestoreDataToCurrentPolicy'
   | 'inspectStoragePressure'
   | 'runStoragePressureCleanup';
 
@@ -48,6 +58,11 @@ export type RestoreStorageMaintenanceMessage =
     }
   | {
       type: 'AIIOB_VIDEO_SCREENSHOT_CACHE';
+      operation: 'pruneRestoreDataToCurrentPolicy';
+      operationId: string;
+    }
+  | {
+      type: 'AIIOB_VIDEO_SCREENSHOT_CACHE';
       operation: 'inspectStoragePressure' | 'runStoragePressureCleanup';
     };
 
@@ -56,6 +71,11 @@ export type RestoreStorageMaintenanceResponse =
       success: true;
       operation: 'clearAllRestoreData';
       result: LocalRestoreDataClearMessageResult;
+    }
+  | {
+      success: true;
+      operation: 'pruneRestoreDataToCurrentPolicy';
+      result: RestoreDataPolicyPruneMessageResult;
     }
   | {
       success: true;
@@ -68,6 +88,7 @@ export function isRestoreStorageMaintenanceOperation(
 ): value is RestoreStorageMaintenanceOperation {
   return (
     value === 'clearAllRestoreData' ||
+    value === 'pruneRestoreDataToCurrentPolicy' ||
     value === 'inspectStoragePressure' ||
     value === 'runStoragePressureCleanup'
   );
@@ -77,8 +98,11 @@ export function isRestoreStorageMaintenanceMessage<Value>(
   value: Value
 ): value is Value & RestoreStorageMaintenanceMessage {
   const clear = readExactOwnDataRecord(value, ['type', 'operation', 'operationId']);
-  if (clear?.type === 'AIIOB_VIDEO_SCREENSHOT_CACHE' && clear.operation === 'clearAllRestoreData') {
-    return isBoundedOperationId(clear.operationId);
+  if (clear?.type === 'AIIOB_VIDEO_SCREENSHOT_CACHE') {
+    if (clear.operation === 'clearAllRestoreData') return isBoundedOperationId(clear.operationId);
+    if (clear.operation === 'pruneRestoreDataToCurrentPolicy') {
+      return isRestoreDataPolicyPruneOperationId(clear.operationId);
+    }
   }
   const pressure = readExactOwnDataRecord(value, ['type', 'operation']);
   if (pressure?.type !== 'AIIOB_VIDEO_SCREENSHOT_CACHE') return false;
@@ -96,6 +120,10 @@ export function normalizeRestoreStorageMaintenanceResponse<Value>(
   if (response?.success !== true || response.operation !== expectedOperation) return null;
   if (expectedOperation === 'clearAllRestoreData') {
     const result = normalizeLocalRestoreDataClearResult(response.result);
+    return result ? { success: true, operation: expectedOperation, result } : null;
+  }
+  if (expectedOperation === 'pruneRestoreDataToCurrentPolicy') {
+    const result = normalizeRestoreDataPolicyPruneResult(response.result);
     return result ? { success: true, operation: expectedOperation, result } : null;
   }
   const result = normalizeRestoreStoragePressureResult(response.result);
