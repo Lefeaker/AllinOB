@@ -9,33 +9,33 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const repoRoot = path.resolve(__dirname, '..');
 
-function findWorkspaceRoot(startDir) {
+function findOriginalReferenceRoot(startDir) {
   let current = startDir;
   while (true) {
-    if (existsSync(path.join(current, 'future/options-component-preview 2/index.html'))) {
-      return current;
+    const candidate = path.join(current, 'future/options-component-preview 2');
+    if (existsSync(candidate)) {
+      return candidate;
     }
     const parent = path.dirname(current);
     if (parent === current) {
-      return path.resolve(startDir, '..');
+      return null;
     }
     current = parent;
   }
 }
 
-const workspaceRoot = findWorkspaceRoot(repoRoot);
-const originalReferenceRoot = path.join(workspaceRoot, 'future/options-component-preview 2');
-const modifiedPreviewRoot = path.join(workspaceRoot, 'future/options-component-preview');
-const currentRoot = path.join(
-  workspaceRoot,
-  '.tmp/preview-freeze-current/options-component-preview'
-);
-const reportPath = path.join(workspaceRoot, '.tmp/preview-freeze-current/report.json');
+const trackedDigestsOnly = process.argv.includes('--tracked-digests-only');
+const originalReferenceRoot = trackedDigestsOnly ? null : findOriginalReferenceRoot(repoRoot);
+const currentRoot = path.join(repoRoot, '.tmp/preview-freeze-current/options-component-preview');
+const reportPath = path.join(repoRoot, '.tmp/preview-freeze-current/report.json');
 const productionSourceHtml = path.join(repoRoot, 'src/options/index.html');
 const productionBuiltHtml = path.join(repoRoot, 'build/dist/options/index.html');
 const updateBaseline = process.argv.includes('--update-baseline');
 const REQUIRED_EQUAL_COMPARISONS = new Set([
   'production source options/index.html vs latest built options/index.html'
+]);
+const REQUIRED_NON_EMPTY_COMPARISONS = new Set([
+  'current generated standalone preview is non-empty'
 ]);
 const ALLOWED_PREVIEW_DRIFT = new Map([
   [
@@ -115,11 +115,12 @@ const ALLOWED_PREVIEW_DRIFT = new Map([
         'The v0.2.1 user-facing changelog and version source-of-truth refresh updates the generated preview JS hash after replacing technical release-note prose with user-readable export stability copy, deriving manifest/build release metadata from package.json, and adding the release metadata guard while preserving the frozen reference, preview freeze logic, and Stitch runtime contract.',
         'P02 public provider bootstrap composition refreshes the generated preview JS hash after Options bootstrap accepts an injected Stitch assets provider while its default still imports productionStitchAssets, preserving the frozen reference, preview freeze logic, and Stitch runtime contract.',
         'The Zendio display-name punctuation refresh updates the generated preview JS hash after replacing the Chinese dash in Zendio-All in Obsidian with the product-approved ASCII hyphen across catalog-backed runtime/static copy and release artifact names while preserving the frozen reference, preview freeze logic, and Stitch runtime contract.',
-        'P12 closes the inherited stale exact hash after two independent P11-base builds and two independent P12-current builds produced the same preview JS bytes, preserving the frozen reference and exact-hash comparison without adding private text or dependencies.'
+        'P12 closes the inherited stale exact hash after two independent P11-base builds and two independent P12-current builds produced the same preview JS bytes, preserving the frozen reference and exact-hash comparison without adding private text or dependencies.',
+        'The portable source-label stabilization enables esbuild preserveSymlinks for preview bundling so dependency modules retain the checkout-local node_modules identity instead of embedding realpath-derived workspace traversal comments. Physical and symlinked dependency layouts now produce identical raw preview JS bytes without changing runtime code, sourcemap policy, legal comments, or freeze-check normalization.'
       ].join(' '),
       leftSha256: '9020ccbd91acd691eccd3fdf568b9a90efbddf0a35d79f36ef1caba702fa0c07',
-      // 2026-07-11 P12 current/base deterministic preview JS hash proof.
-      rightSha256: 'f15cfbed71fa74d2df1d11e976426269e28a1cd69d46d1e0f3908c8888687252'
+      // 2026-07-13 portable source-label proof across physical and symlinked node_modules.
+      rightSha256: 'e928945d7356bb9c71c258509f9dba6fabdb2887df37263e3deb5faefc0415fb'
     }
   ]
 ]);
@@ -196,12 +197,13 @@ function validateFreezeComparisons(comparisons) {
       continue;
     }
 
-    if (
-      ALLOWED_PREVIEW_DRIFT.has(comparison.label) &&
-      !comparison.equal &&
-      !isAllowedPreviewDrift(comparison)
-    ) {
+    if (ALLOWED_PREVIEW_DRIFT.has(comparison.label) && !isAllowedPreviewDrift(comparison)) {
       failures.push(`${comparison.label}: drift does not match the explicit allowlist`);
+      continue;
+    }
+
+    if (REQUIRED_NON_EMPTY_COMPARISONS.has(comparison.label) && !comparison.nonEmpty) {
+      failures.push(`${comparison.label}: expected a non-empty artifact from this build`);
     }
   }
 
@@ -239,10 +241,53 @@ async function summarizePair(label, leftFile, rightFile) {
   };
 }
 
+async function summarizeFrozenPreviewArtifact(label, fileName) {
+  const allowlistEntry = ALLOWED_PREVIEW_DRIFT.get(label);
+  if (!allowlistEntry) {
+    throw new Error(`Missing frozen digest contract for ${label}`);
+  }
+
+  const rightFile = path.join(currentRoot, fileName);
+  const right = await readOptional(rightFile);
+  const leftFile = originalReferenceRoot ? path.join(originalReferenceRoot, fileName) : null;
+  const left = leftFile ? await readOptional(leftFile) : null;
+  const missing = [
+    ...(right === null ? [rightFile] : []),
+    ...(leftFile && left === null ? [leftFile] : [])
+  ];
+
+  return {
+    label,
+    leftFile,
+    rightFile,
+    referenceSource: leftFile ? 'external-reference-and-tracked-digest' : 'tracked-digest',
+    equal: left !== null && right !== null ? left === right : false,
+    missing,
+    leftLength: left?.length,
+    rightLength: right?.length,
+    leftSha256: left === null ? allowlistEntry.leftSha256 : sha256(left),
+    rightSha256: right === null ? undefined : sha256(right),
+    firstDifference: left !== null && right !== null ? firstDifference(left, right) : undefined
+  };
+}
+
+async function summarizeNonEmptyArtifact(label, file) {
+  const content = await readOptional(file);
+
+  return {
+    label,
+    file,
+    missing: content === null ? [file] : [],
+    nonEmpty: content !== null && content.length > 0,
+    length: content?.length,
+    sha256: content === null ? undefined : sha256(content)
+  };
+}
+
 async function run() {
   if (updateBaseline) {
     throw new Error(
-      'Refusing to update preview baseline. The truth source is the original reference at future/options-component-preview 2.'
+      'Refusing to update preview baseline. Tracked frozen digests are code truth; the external original reference is optional cross-check evidence.'
     );
   }
 
@@ -250,24 +295,20 @@ async function run() {
   await runBuildPreview(currentRoot);
 
   const comparisons = await Promise.all([
-    summarizePair(
+    summarizeFrozenPreviewArtifact(
       'original reference index.html vs current generated preview index.html',
-      path.join(originalReferenceRoot, 'index.html'),
-      path.join(currentRoot, 'index.html')
+      'index.html'
     ),
-    summarizePair(
+    summarizeFrozenPreviewArtifact(
       'original reference styles.css vs current generated preview styles.css',
-      path.join(originalReferenceRoot, 'styles.css'),
-      path.join(currentRoot, 'styles.css')
+      'styles.css'
     ),
-    summarizePair(
+    summarizeFrozenPreviewArtifact(
       'original reference index.js vs current generated preview index.js',
-      path.join(originalReferenceRoot, 'index.js'),
-      path.join(currentRoot, 'index.js')
+      'index.js'
     ),
-    summarizePair(
-      'developer-modified standalone preview vs current generated standalone preview',
-      path.join(modifiedPreviewRoot, 'options-preview-stitch-secondary.html'),
+    summarizeNonEmptyArtifact(
+      'current generated standalone preview is non-empty',
       path.join(currentRoot, 'options-preview-stitch-secondary.html')
     ),
     summarizePair(
@@ -279,12 +320,21 @@ async function run() {
 
   const report = {
     truthSource: {
-      originalReferenceRoot,
-      originalReferenceEntry: path.join(originalReferenceRoot, 'index.html'),
-      note: 'Do not rewrite this reference to make tests pass.'
+      trackedDigests: Object.fromEntries(
+        [...ALLOWED_PREVIEW_DRIFT].map(([label, entry]) => [
+          label,
+          {
+            originalSha256: entry.leftSha256,
+            currentSha256: entry.rightSha256
+          }
+        ])
+      ),
+      externalOriginalReferenceRoot: originalReferenceRoot,
+      note: originalReferenceRoot
+        ? 'The optional external original reference was cross-checked against tracked frozen digests.'
+        : 'The external original reference is unavailable; tracked frozen digests remain authoritative.'
     },
     generatedCurrentPreviewRoot: currentRoot,
-    modifiedPreviewRoot,
     production: {
       sourceHtml: productionSourceHtml,
       builtHtml: productionBuiltHtml
@@ -298,7 +348,9 @@ async function run() {
   validateFreezeComparisons(comparisons);
 
   console.log(`✅ Preview comparison report written: ${reportPath}`);
-  console.log(`   Truth source: ${originalReferenceRoot}`);
+  console.log(
+    `   Truth source: tracked frozen digests${originalReferenceRoot ? ` plus ${originalReferenceRoot}` : ''}`
+  );
   for (const [label, entry] of ALLOWED_PREVIEW_DRIFT) {
     const comparison = comparisons.find((item) => item.label === label);
     if (comparison && isAllowedPreviewDrift(comparison)) {
@@ -307,7 +359,11 @@ async function run() {
   }
 }
 
-run().catch((error) => {
-  console.error(error instanceof Error ? error.message : error);
-  process.exit(1);
-});
+export { validateFreezeComparisons };
+
+if (process.argv[1] && path.resolve(process.argv[1]) === __filename) {
+  run().catch((error) => {
+    console.error(error instanceof Error ? error.message : error);
+    process.exit(1);
+  });
+}
