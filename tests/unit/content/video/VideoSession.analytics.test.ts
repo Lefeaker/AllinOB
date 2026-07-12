@@ -1,10 +1,12 @@
 /* @vitest-environment jsdom */
 
+import './videoSessionTestHarness';
+
 import {
   __resetContentSessionRegistryForTests,
   isVideoSessionActive
 } from '@content/runtime/contentSessionRegistry';
-import { createSessionDraftRepository } from '@content/sessionDrafts/sessionDraftRepository';
+import { createDirectSessionDraftRepository as createSessionDraftRepository } from '@content/sessionDrafts/sessionDraftRepository';
 import type { VideoPanelCallbacks } from '@content/video/application/videoPanelModel';
 import { VideoSession } from '@content/video/session';
 import {
@@ -29,7 +31,7 @@ import {
   getTrackUsageEventMock,
   getVideoSessionHarnessMocks,
   loadLatestVideoDraft,
-  readLatestVideoDraftCandidate,
+  readVideoDraftCandidateWithScreenshotRef,
   readVideoDraftPayload,
   requireMountedPanelCallbacks,
   requirePromise,
@@ -344,14 +346,11 @@ describe('VideoSession analytics', () => {
       expect(trackUsageEvent).toHaveBeenCalledWith('video_screenshot_captured', {
         screenshot_count_bucket: 'one'
       });
-      let latestCandidate = await readLatestVideoDraftCandidate(deps);
+      let latestCandidate = await readVideoDraftCandidateWithScreenshotRef(deps, 'ts-1');
       for (let index = 0; index < 20; index += 1) {
-        const latestCapture = readVideoDraftPayload(latestCandidate)?.captures[0];
-        if (latestCapture?.kind === 'timestamp' && latestCapture.screenshotRef) {
-          break;
-        }
+        if (latestCandidate) break;
         await flushMutationWork();
-        latestCandidate = await readLatestVideoDraftCandidate(deps);
+        latestCandidate = await readVideoDraftCandidateWithScreenshotRef(deps, 'ts-1');
       }
       expect(readVideoDraftPayload(latestCandidate)?.captures[0]).toMatchObject({
         id: 'ts-1',

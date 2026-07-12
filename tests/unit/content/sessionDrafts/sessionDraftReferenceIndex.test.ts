@@ -10,7 +10,7 @@ import {
 } from '@content/sessionDrafts/sessionDraftKeys';
 import {
   readSessionDraftReferenceIndex,
-  removeSessionDraftStorageKeys
+  repairSessionDraftIndex
 } from '@content/sessionDrafts/sessionDraftReferenceIndex';
 import type {
   SessionDraftEnvelope,
@@ -135,7 +135,8 @@ describe('sessionDraftReferenceIndex', () => {
       ordinaryConfig: { retained: true }
     });
 
-    await removeSessionDraftStorageKeys(area, [firstKey]);
+    await area.remove(firstKey);
+    await repairSessionDraftIndex(area, (keys) => area.remove([...keys]));
 
     const snapshot = await readSessionDraftReferenceIndex(area);
     expect(snapshot.drafts.map((draft) => draft.key)).toEqual([secondKey]);

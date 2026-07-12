@@ -15,6 +15,7 @@ import { ReaderPanelCoordinator } from './panelCoordinator';
 import { ReaderEnvironmentController } from './environmentController';
 import { ReaderSessionLifecycle } from './sessionLifecycle';
 import { ReaderSessionExporter } from './services/exporter';
+import { createSessionDraftClientRepository } from '../sessionDrafts/sessionDraftClientRepository';
 
 export interface ReaderSessionPlatformDependencies {
   // Content composition root now passes the primary repository contract.
@@ -48,6 +49,9 @@ export function createReaderSessionDependencies(
     optionsRepository: deps.optionsRepository,
     storage: deps.storage,
     messaging: deps.messaging,
+    sessionDraftRepository: createSessionDraftClientRepository({
+      send: (message) => deps.messaging.send(message)
+    }),
     ...(sessionDraftStoragePolicy ? { sessionDraftStoragePolicy } : {}),
     ...((overrides.showSupportProgress ?? deps.showSupportProgress)
       ? { showSupportProgress: overrides.showSupportProgress ?? deps.showSupportProgress }

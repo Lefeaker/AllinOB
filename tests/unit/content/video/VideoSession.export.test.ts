@@ -1,11 +1,13 @@
 /* @vitest-environment jsdom */
 
+import './videoSessionTestHarness';
+
 import {
   __resetContentSessionRegistryForTests,
   isVideoSessionActive
 } from '@content/runtime/contentSessionRegistry';
 import { createSessionDraftStorageKey } from '@content/sessionDrafts/sessionDraftKeys';
-import { createSessionDraftRepository } from '@content/sessionDrafts/sessionDraftRepository';
+import { createDirectSessionDraftRepository as createSessionDraftRepository } from '@content/sessionDrafts/sessionDraftRepository';
 import type { VideoPanelCallbacks } from '@content/video/application/videoPanelModel';
 import { VideoSession } from '@content/video/session';
 import {

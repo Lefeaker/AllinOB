@@ -12,6 +12,12 @@ export const VIDEO_STORAGE_PREFIX: Record<Exclude<VideoPlatform, 'unknown'>, str
   youtube: 'yt:'
 };
 
+export function isLegacyVideoStorageKey(key: string): boolean {
+  return Object.values(VIDEO_STORAGE_PREFIX).some(
+    (prefix) => key.startsWith(prefix) && key.length > prefix.length
+  );
+}
+
 export function detectVideoIdentity(rawUrl: string | undefined | null): VideoIdentity {
   const fallbackIdentity: VideoIdentity = {
     platform: 'unknown',

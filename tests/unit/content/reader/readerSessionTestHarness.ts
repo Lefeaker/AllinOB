@@ -18,10 +18,15 @@ import { ReaderPanelCoordinator } from '@content/reader/panelCoordinator';
 import { ReaderSession } from '@content/reader/session';
 import type { ReaderSessionDependencies } from '@content/reader/session';
 import { ReaderSessionLifecycle } from '@content/reader/sessionLifecycle';
+import type { ReaderEnvironmentController } from '@content/reader/environmentController';
 import { DEFAULT_SESSION_MESSAGES } from '@content/reader/sessionMessages';
+import type { ReaderSelectionPayload } from '@content/reader/services/selectionController';
 import type { SessionMutationTransaction } from '@content/sessionMutations';
 import { ReaderSessionExporter } from '@content/reader/services/exporter';
-import type { ReaderHighlightRecord } from '@content/reader/services/highlightManager';
+import type {
+  ReaderHighlightManager,
+  ReaderHighlightRecord
+} from '@content/reader/services/highlightManager';
 import { ReaderSelectionController } from '@content/reader/services/selectionController';
 import {
   buildReaderFullMarkdown,
@@ -30,7 +35,7 @@ import {
 import type { ReadingOptions } from '@shared/repositories/IReaderRepository';
 import {
   SESSION_DRAFT_INDEX_KEY,
-  createSessionDraftRepository,
+  createDirectSessionDraftRepository as createSessionDraftRepository,
   type ReaderSessionDraftEnvelope,
   type SessionDraftEnvelope,
   type SessionDraftIndex,
@@ -40,6 +45,8 @@ import type { SessionCommentDraftSnapshot } from '@content/shared/panels/session
 import { createMemoryStorageArea } from '@platform/preview/memoryStorage';
 import { mergeOptions } from '@shared/config/optionsMerger';
 import { getTestRestUrls } from '../../../fixtures/configTestHelpers';
+import { asType } from '../../../utils/typeHelpers';
+import { isObjectRecord, type RuntimePropertyValue } from '@shared/guards/object';
 
 const LOCAL_REST_URLS = getTestRestUrls('localhost');
 const LOCAL_REST_BASE_URL = LOCAL_REST_URLS.baseUrl.replace(/\/$/, '');
@@ -50,7 +57,7 @@ export type TestView = ReaderSessionView & {
   updateCount: Mock<(...args: [count: number]) => void>;
   updateHint: Mock<(...args: [message: string]) => void>;
   updateTexts: Mock<(...args: [texts: ReaderPanelTexts]) => void>;
-  updateDestination: Mock<(...args: [destination: unknown]) => void>;
+  updateDestination: Mock<NonNullable<ReaderSessionView['updateDestination']>>;
   setHighlights: Mock<
     (...args: [highlights: ReaderPanelHighlight[], options?: ReaderPanelRenderOptions]) => void
   >;
@@ -70,7 +77,7 @@ export type TestView = ReaderSessionView & {
 export interface Deferred<T> {
   promise: Promise<T>;
   resolve(value: T | PromiseLike<T>): void;
-  reject(reason?: unknown): void;
+  reject(reason?: Error): void;
 }
 
 export type ReaderSessionTestHarness = {
@@ -93,7 +100,7 @@ export type ReaderSessionTestHarness = {
     wrapper: HTMLElement;
     footnoteIndex?: number;
   }>;
-  handleSelection(payload: unknown): Promise<void>;
+  handleSelection(payload: ReaderSelectionPayload): Promise<void>;
   persistDraftMutation(): Promise<void>;
   runDraftMutation<Result>(transaction: SessionMutationTransaction<Result, void>): Promise<boolean>;
   draftId: string | null;
@@ -115,7 +122,7 @@ export function createDeferred<T>(): Deferred<T> {
 }
 
 export function getSessionHarness(session: ReaderSession): ReaderSessionTestHarness {
-  return session as unknown as ReaderSessionTestHarness;
+  return asType<ReaderSessionTestHarness>(session);
 }
 
 export function getDraftIdentity(session: ReaderSession): {
@@ -249,7 +256,7 @@ export type TabContextProbeResponse = {
 export type TelemetryMessage = {
   type: 'ANALYTICS_EVENT';
   event: string;
-  params?: Record<string, unknown>;
+  params?: Record<string, RuntimePropertyValue>;
 };
 
 export function isTabContextProbeMessage(
@@ -265,20 +272,17 @@ export function isTabContextProbeMessage(
 
 export function getTelemetryMessages(context: { messaging: { send: Mock } }): TelemetryMessage[] {
   return context.messaging.send.mock.calls.flatMap(([message]) => {
-    if (typeof message !== 'object' || message === null) {
+    if (!isObjectRecord(message)) {
       return [];
     }
-    const candidate = message as { type?: unknown; event?: unknown; params?: unknown };
-    if (candidate.type !== 'ANALYTICS_EVENT' || typeof candidate.event !== 'string') {
+    if (message.type !== 'ANALYTICS_EVENT' || typeof message.event !== 'string') {
       return [];
     }
     return [
       {
         type: 'ANALYTICS_EVENT',
-        event: candidate.event,
-        ...(candidate.params && typeof candidate.params === 'object'
-          ? { params: candidate.params as Record<string, unknown> }
-          : {})
+        event: message.event,
+        ...(isObjectRecord(message.params) ? { params: message.params } : {})
       }
     ];
   });
@@ -309,11 +313,13 @@ export function createSessionContext(
     highlightTheme: 'gradient'
   });
   const environment = {
-    start: vi.fn(async () => ({
-      controller: null,
-      messages: DEFAULT_SESSION_MESSAGES,
-      fragmentConfig: DEFAULT_FRAGMENT_CONFIG
-    })),
+    start: vi.fn(() =>
+      Promise.resolve({
+        controller: null,
+        messages: DEFAULT_SESSION_MESSAGES,
+        fragmentConfig: DEFAULT_FRAGMENT_CONFIG
+      })
+    ),
     stop: vi.fn()
   };
   const dispatchClipResult = vi.fn().mockResolvedValue(undefined);
@@ -323,6 +329,10 @@ export function createSessionContext(
   };
   const syncStorageArea = createMemoryStorageArea();
   const localStorageArea = createMemoryStorageArea();
+  const sessionDraftRepository = createSessionDraftRepository(
+    localStorageArea,
+    options.sessionDraftStoragePolicy ? { storagePolicy: options.sessionDraftStoragePolicy } : {}
+  );
   const highlightManager = {
     applyTheme: vi.fn((theme: string) => {
       document.body.dataset.aiobReaderHighlight = theme;
@@ -436,6 +446,7 @@ export function createSessionContext(
       sync: syncStorageArea,
       local: localStorageArea
     },
+    sessionDraftRepository,
     messaging,
     readerRepository: {
       getReadingConfig,
@@ -445,10 +456,10 @@ export function createSessionContext(
         return () => undefined;
       })
     },
-    createHighlightManager: () => highlightManager as never,
+    createHighlightManager: () => asType<ReaderHighlightManager>(highlightManager),
     createSelectionController: (options) => new ReaderSelectionController(options),
     createPanelCoordinator: (options) => new ReaderPanelCoordinator(options),
-    createEnvironmentController: () => environment as never,
+    createEnvironmentController: () => asType<ReaderEnvironmentController>(environment),
     createLifecycle: (deps, handlers) => new ReaderSessionLifecycle(deps, handlers),
     exporter: new ReaderSessionExporter({
       buildHighlightsMarkdown: buildReaderHighlightsMarkdown,
@@ -471,6 +482,7 @@ export function createSessionContext(
 
   return {
     session,
+    sessionDraftRepository,
     view,
     storageLocal: localStorageArea,
     draftRepository: createSessionDraftRepository(

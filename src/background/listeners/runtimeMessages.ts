@@ -27,7 +27,6 @@ import {
 } from '../application/clipProcessor';
 import type { MessagingService } from '../../platform/interfaces/messaging';
 import type { TabsService } from '../../platform/interfaces/tabs';
-import type { RuntimeService } from '../../platform/interfaces/runtime';
 import type { ClipPayload } from '../../shared/types';
 import type { MessagePayload } from '../../platform/interfaces/messaging';
 import { isObjectRecord } from '../../shared/guards/object';
@@ -35,7 +34,6 @@ import {
   CAPTURE_VISIBLE_TAB_SCREENSHOT_MESSAGE,
   type CaptureVisibleTabScreenshotResponse
 } from '../../shared/types/videoScreenshotMessages';
-import { captureVisibleTabScreenshotForSender } from './visibleTabScreenshot';
 import {
   createBackgroundVideoScreenshotCacheHandler as createScreenshotCacheHandler,
   type BackgroundVideoScreenshotCacheHandler
@@ -51,6 +49,7 @@ import {
   type RuntimeMessageSender,
   type RuntimeTabContextPayload
 } from './runtimeMessageContracts';
+import { createRuntimeMessageComposition } from './runtimeMessageComposition';
 
 const INVALID_CLIP_PAYLOAD_ERROR = 'Invalid clip payload received.';
 
@@ -151,64 +150,25 @@ function resolveActivationMilestone(
 export function createRuntimeMessageListenerDependencies(
   messaging: Pick<MessagingService, 'addListener'>,
   tabs: Pick<TabsService, 'create' | 'get' | 'sendMessage' | 'captureVisibleTab'>,
-  runtime: Pick<RuntimeService, 'getURL'>,
+  runtime: Parameters<typeof createRuntimeMessageComposition>[1],
   storage: Pick<StorageService, 'local'>,
   restoreStoragePolicyProvider: BackgroundVideoScreenshotCachePolicyInput = defaultRestoreCapabilityPolicyProvider
 ): RuntimeMessageListenerDependencies {
+  const composition = createRuntimeMessageComposition(tabs, runtime);
   return {
     messaging,
     clipPipeline: createClipPipelineDependencies(tabs),
     handleVideoScreenshotCacheMessage: createScreenshotCacheHandler(
       storage,
-      restoreStoragePolicyProvider
+      restoreStoragePolicyProvider,
+      {
+        isOwnerContextActive: (owner) => composition.isOwnerContextActive(owner)
+      }
     ),
-    async openOptionsPage(section) {
-      const optionsUrl = runtime.getURL('options/index.html');
-      const normalizedSection = section?.trim();
-      const url = normalizedSection ? `${optionsUrl}#${normalizedSection}` : optionsUrl;
-      await tabs.create({ url });
-    },
-    async getTabContext(sender) {
-      const tabId = typeof sender.tabId === 'number' ? sender.tabId : undefined;
-      const frameId = typeof sender.frameId === 'number' ? sender.frameId : undefined;
-      let windowId = typeof sender.windowId === 'number' ? sender.windowId : undefined;
-
-      if (windowId === undefined && tabId !== undefined) {
-        try {
-          windowId = (await tabs.get(tabId))?.windowId;
-        } catch {
-          windowId = undefined;
-        }
-      }
-
-      return {
-        success: true,
-        ...(tabId !== undefined ? { tabId } : {}),
-        ...(windowId !== undefined ? { windowId } : {}),
-        ...(frameId !== undefined ? { frameId } : {})
-      };
-    },
-    async isTabContextActive(ownerContext) {
-      const tabId = typeof ownerContext.tabId === 'number' ? ownerContext.tabId : undefined;
-      if (tabId === undefined) {
-        return { success: true, active: false };
-      }
-
-      try {
-        const tab = await tabs.get(tabId);
-        const expectedWindowId =
-          typeof ownerContext.windowId === 'number' ? ownerContext.windowId : undefined;
-        const active =
-          tab !== undefined &&
-          (expectedWindowId === undefined || tab.windowId === expectedWindowId);
-        return { success: true, active };
-      } catch {
-        return { success: true, active: false };
-      }
-    },
-    captureVisibleTabScreenshot(sender) {
-      return captureVisibleTabScreenshotForSender(tabs, sender);
-    }
+    openOptionsPage: (section) => composition.openOptionsPage(section),
+    getTabContext: (sender) => composition.getTabContext(sender),
+    isTabContextActive: (owner) => composition.isTabContextActive(owner),
+    captureVisibleTabScreenshot: (sender) => composition.captureVisibleTabScreenshot(sender)
   };
 }
 
@@ -274,7 +234,10 @@ export function registerRuntimeMessageListener(
       return dependencies.captureVisibleTabScreenshot(toRuntimeMessageSender(sender));
     }
 
-    const screenshotCacheResponse = await dependencies.handleVideoScreenshotCacheMessage(message);
+    const screenshotCacheResponse = await dependencies.handleVideoScreenshotCacheMessage(
+      message,
+      toRuntimeMessageSender(sender)
+    );
     if (screenshotCacheResponse !== undefined) {
       return toMessagePayload(screenshotCacheResponse);
     }

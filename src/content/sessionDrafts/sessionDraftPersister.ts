@@ -80,6 +80,15 @@ export function createSessionDraftPersister<TEnvelope extends SessionDraftEnvelo
       return deferred.promise;
     },
 
+    cancelPending(): void {
+      if (timer) {
+        clearTimeout(timer);
+        timer = null;
+      }
+      pending?.resolve();
+      pending = null;
+    },
+
     flushNow(): Promise<void> {
       return flushPending();
     },

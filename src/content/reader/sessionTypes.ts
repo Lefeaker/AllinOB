@@ -24,12 +24,14 @@ import type { ReadingSessionOptions } from '../../shared/types/options';
 import type { ReaderMarkdownPayload } from './utils/markdownBuilder';
 import type { SupportProgressReporter } from '../runtime/supportProgress';
 import type { SessionDraftStoragePolicy } from '../sessionDrafts';
+import type { SessionDraftRepository } from '../sessionDrafts';
 
 export interface ReaderSessionDependencies {
   viewFactory: ReaderSessionViewFactory;
   optionsRepository: IOptionsRepository;
   storage: StorageService;
   messaging: Pick<MessagingService, 'send'>;
+  sessionDraftRepository: SessionDraftRepository;
   readerRepository: IReaderRepository;
   optionsPageUrl?: string;
   createHighlightManager: (doc: Document) => ReaderHighlightManager;

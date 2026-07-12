@@ -1,7 +1,8 @@
 import { expect, vi } from 'vitest';
 import type { Mock, MockInstance } from 'vitest';
+import '../../../setup/globalSetup';
 import { SESSION_DRAFT_INDEX_KEY } from '@content/sessionDrafts/sessionDraftKeys';
-import { createSessionDraftRepository } from '@content/sessionDrafts/sessionDraftRepository';
+import { createDirectSessionDraftRepository as createSessionDraftRepository } from '@content/sessionDrafts/sessionDraftRepository';
 import { createMemoryStorageArea } from '@platform/preview/memoryStorage';
 import { VideoSession } from '@content/video/session';
 import { DEFAULT_SESSION_MESSAGES } from '@content/video/sessionMessages';
@@ -21,8 +22,11 @@ import type {
   VideoScreenshotCacheSaveInput,
   VideoScreenshotCacheSaveResult
 } from '@content/video/videoScreenshotCacheRepository';
+import type { VideoScreenshotCacheProvisionalRepository } from '@content/video/videoScreenshotCacheClientRepository';
 import type { VideoScreenshotCacheRef } from '@content/video/videoScreenshotCacheTypes';
 import type { UsageEventName, UsageEventParamMap } from '@shared/types/analytics';
+import type { StorageAreaService } from '@platform/interfaces/storage';
+import type { VersionedSessionDraftRepository } from '@content/sessionDrafts/sessionDraftClientRepository';
 
 const ensureContentI18nMock = vi.hoisted(() =>
   vi.fn(() =>
@@ -321,6 +325,28 @@ export function createDependencies(
     remove: vi.fn(syncArea.remove),
     clear: vi.fn(syncArea.clear)
   };
+  const sessionDraftRepository = createSessionDraftRepository(
+    local as StorageAreaService,
+    overrides.sessionDraftStoragePolicy
+      ? { retentionPolicy: overrides.sessionDraftStoragePolicy.retentionPolicy }
+      : {}
+  );
+  const versionedSessionDraftRepository: VersionedSessionDraftRepository = {
+    ...sessionDraftRepository,
+    claim: () => Promise.resolve(),
+    runWriteOperation(draftKey, task) {
+      return task({
+        context: {
+          operationId: 'video-session-harness-operation',
+          epoch: 1,
+          draftKey,
+          baseRevision: 0,
+          nextRevision: 1
+        },
+        commit: (envelope) => sessionDraftRepository.save(envelope)
+      });
+    }
+  };
   return {
     viewFactory: {
       createView: vi.fn(() => createView())
@@ -342,6 +368,7 @@ export function createDependencies(
       local,
       sync
     },
+    sessionDraftRepository: versionedSessionDraftRepository,
     showSupportProgress,
     ...(overrides.sessionDraftStoragePolicy
       ? { sessionDraftStoragePolicy: overrides.sessionDraftStoragePolicy }
@@ -612,6 +639,21 @@ export async function readLatestVideoDraftCandidate(deps: VideoSessionDependenci
   return [...candidates].sort((left, right) => left.updatedAt - right.updatedAt).at(-1) ?? null;
 }
 
+export async function readVideoDraftCandidateWithScreenshotRef(
+  deps: VideoSessionDependencies,
+  captureId: string
+) {
+  const candidates = await listVideoDraftCandidates(deps);
+  return (
+    candidates.find((candidate) =>
+      readVideoDraftPayload(candidate)?.captures.some(
+        (capture) =>
+          capture.kind === 'timestamp' && capture.id === captureId && capture.screenshotRef
+      )
+    ) ?? null
+  );
+}
+
 export function isVideoDraftPayloadShape(
   payload: VideoSessionDraftEnvelope['payload']
 ): payload is VideoSessionDraftPayloadShape {
@@ -714,14 +756,14 @@ export function readFirstCacheSaveInput(
 }
 
 export function createScreenshotCacheRepositoryMock(
-  overrides: Partial<VideoScreenshotCacheRepository>
-): VideoScreenshotCacheRepository {
+  overrides: Partial<VideoScreenshotCacheRepository & VideoScreenshotCacheProvisionalRepository>
+): VideoScreenshotCacheRepository & VideoScreenshotCacheProvisionalRepository {
   const defaultSaveResult: VideoScreenshotCacheSaveResult = {
     status: 'skipped',
     reason: 'serialize-failed',
     error: 'not configured'
   };
-  return {
+  const repository: VideoScreenshotCacheRepository = {
     save: vi.fn(() => Promise.resolve(defaultSaveResult)),
     load: vi.fn(() => Promise.resolve(null)),
     remove: vi.fn(() => Promise.resolve(undefined)),
@@ -729,6 +771,10 @@ export function createScreenshotCacheRepositoryMock(
     pruneExpired: vi.fn(() => Promise.resolve(undefined)),
     pruneToLimits: vi.fn(() => Promise.resolve(undefined)),
     ...overrides
+  };
+  return {
+    ...repository,
+    saveProvisional: overrides.saveProvisional ?? ((input) => repository.save(input))
   };
 }
 

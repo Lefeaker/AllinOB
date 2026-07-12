@@ -10,11 +10,11 @@ import {
 } from './sessionDrafts';
 import {
   createSessionDraftPersister,
-  createSessionDraftRepository,
   createSessionDraftStorageKey,
   type ReaderSessionDraftEnvelope,
   type SessionCommentDraftSnapshot,
   type SessionDraftPersister,
+  type SessionDraftRepository,
   type SessionDraftStatus,
   type SessionDraftStoragePolicy,
   type SessionDraftTerminalStatus
@@ -25,6 +25,7 @@ export interface ReaderSessionDraftControllerOptions {
   doc: Document;
   pageUrl: string;
   storageArea: StorageAreaService;
+  repository: SessionDraftRepository;
   sessionDraftStoragePolicy?: SessionDraftStoragePolicy;
   getPageTitle: () => string;
   getHighlights: () => ReaderHighlightRecord[];
@@ -40,7 +41,7 @@ export interface ReaderSessionDraftIdentity {
 }
 
 export class ReaderSessionDraftController {
-  private readonly repository: ReturnType<typeof createSessionDraftRepository>;
+  private readonly repository: SessionDraftRepository;
   private readonly persister: SessionDraftPersister;
   private draftId: string | null = null;
   private draftCreatedAt: number | null = null;
@@ -48,9 +49,7 @@ export class ReaderSessionDraftController {
   private removeLifecycleListeners: (() => void) | null = null;
 
   constructor(private readonly options: ReaderSessionDraftControllerOptions) {
-    this.repository = createSessionDraftRepository(this.options.storageArea, {
-      storagePolicy: this.options.sessionDraftStoragePolicy
-    });
+    this.repository = this.options.repository;
     this.persister = createSessionDraftPersister({
       repository: this.repository,
       buildEnvelope: () => this.buildEnvelope('active')
@@ -196,8 +195,8 @@ export class ReaderSessionDraftController {
 
   async flushForRestore(): Promise<void> {
     try {
-      await this.persister.flushNow();
       const envelope = this.buildEnvelope('restorable');
+      this.persister.cancelPending();
       if (!envelope) {
         await this.clearPersistedDraft();
         return;

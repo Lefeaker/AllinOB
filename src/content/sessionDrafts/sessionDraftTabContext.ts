@@ -1,5 +1,6 @@
 import type { SessionDraftEnvelope, SessionDraftOwnerContext } from './sessionDraftTypes';
 import type { RuntimeMessageSender } from '@platform/interfaces/runtime';
+import { readExactOwnDataRecord, readOwnDataRecord } from '../../shared/guards/exactOwnDataRecord';
 
 export const SESSION_DRAFT_TAB_CONTEXT_MESSAGE_TYPE = 'AIIOB_GET_TAB_CONTEXT';
 export const SESSION_DRAFT_OWNER_CONTEXT_ACTIVE_MESSAGE_TYPE = 'AIIOB_IS_TAB_CONTEXT_ACTIVE';
@@ -28,12 +29,8 @@ export function configureSessionDraftRuntimeMessenger(sender: RuntimeMessageSend
   runtimeMessageSender = sender;
 }
 
-function isObjectRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null;
-}
-
 function isNonNegativeInteger(value: unknown): value is number {
-  return typeof value === 'number' && Number.isInteger(value) && value >= 0;
+  return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0;
 }
 
 function getRuntimeSendMessage(): RuntimeMessageSender | null {
@@ -41,22 +38,32 @@ function getRuntimeSendMessage(): RuntimeMessageSender | null {
 }
 
 export function normalizeSessionDraftOwnerContext(value: unknown): SessionDraftOwnerContext | null {
-  if (!isObjectRecord(value)) {
+  const snapshot = readOwnDataRecord(value);
+  if (!snapshot) {
+    return null;
+  }
+  const keys = Object.keys(snapshot);
+  const allowedKeys = new Set(['tabId', 'windowId', 'frameId']);
+  if (
+    keys.length === 0 ||
+    keys.some((key) => !allowedKeys.has(key)) ||
+    keys.some((key) => !isNonNegativeInteger(snapshot[key]))
+  ) {
     return null;
   }
 
   const ownerContext: SessionDraftOwnerContext = {};
-  if (isNonNegativeInteger(value.tabId)) {
-    ownerContext.tabId = value.tabId;
+  if (isNonNegativeInteger(snapshot.tabId)) {
+    ownerContext.tabId = snapshot.tabId;
   }
-  if (isNonNegativeInteger(value.windowId)) {
-    ownerContext.windowId = value.windowId;
+  if (isNonNegativeInteger(snapshot.windowId)) {
+    ownerContext.windowId = snapshot.windowId;
   }
-  if (isNonNegativeInteger(value.frameId)) {
-    ownerContext.frameId = value.frameId;
+  if (isNonNegativeInteger(snapshot.frameId)) {
+    ownerContext.frameId = snapshot.frameId;
   }
 
-  return Object.keys(ownerContext).length > 0 ? ownerContext : null;
+  return ownerContext;
 }
 
 export function getSessionDraftEnvelopeOwnerContext(
@@ -104,10 +111,22 @@ export function getCurrentSessionDraftOwnerContext():
     type: SESSION_DRAFT_TAB_CONTEXT_MESSAGE_TYPE
   } satisfies SessionDraftTabContextRequest)
     .then((response) => {
-      if (!isObjectRecord(response) || response.success !== true) {
+      const snapshot = readOwnDataRecord(response);
+      if (
+        !snapshot ||
+        snapshot.success !== true ||
+        Object.keys(snapshot).some(
+          (key) => !['success', 'tabId', 'windowId', 'frameId'].includes(key)
+        )
+      ) {
         return null;
       }
-      return normalizeSessionDraftOwnerContext(response);
+      const ownerContext = {
+        ...('tabId' in snapshot ? { tabId: snapshot.tabId } : {}),
+        ...('windowId' in snapshot ? { windowId: snapshot.windowId } : {}),
+        ...('frameId' in snapshot ? { frameId: snapshot.frameId } : {})
+      };
+      return normalizeSessionDraftOwnerContext(ownerContext);
     })
     .catch(() => null);
 }
@@ -130,10 +149,11 @@ export function isSessionDraftOwnerContextActive(
     ownerContext: normalizedOwnerContext
   } satisfies SessionDraftOwnerContextActiveRequest)
     .then((response) => {
-      if (!isObjectRecord(response) || response.success !== true) {
+      const snapshot = readExactOwnDataRecord(response, ['success', 'active']);
+      if (!snapshot || snapshot.success !== true) {
         return false;
       }
-      return response.active === true;
+      return snapshot.active === true;
     })
     .catch(() => false);
 }

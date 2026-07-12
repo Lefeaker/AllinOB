@@ -1,18 +1,19 @@
 import type { StorageAreaService } from '../../platform/interfaces/storage';
-import type { RestoreStoragePressureMessageResult } from '../../content/sessionDrafts/restoreStorageMaintenanceMessages';
 import { getSessionDraftEffectiveExpiresAt } from '../../content/sessionDrafts/sessionDraftRetentionPolicy';
 import type { SessionDraftStoragePolicy } from '../../content/sessionDrafts/sessionDraftStoragePolicy';
-import {
-  readSessionDraftReferenceIndex,
-  removeSessionDraftStorageKeys
-} from '../../content/sessionDrafts/sessionDraftReferenceIndex';
-import type { VideoScreenshotCacheBlobMetadata } from '../../content/video/videoScreenshotCacheStore';
+import { readSessionDraftReferenceIndex } from '../../content/sessionDrafts/sessionDraftReferenceIndex';
+import type { VideoScreenshotCacheBlobObservationStore } from '../../content/video/videoScreenshotCacheStore';
 import type { StorageEstimateService, StorageEstimateSnapshot } from './storageEstimateService';
+import { selectExcessDraftKeys, sortDraftsOldestFirst } from './restoreStoragePressureSelectors';
 import {
-  selectExcessDraftKeys,
-  sortDraftsOldestFirst,
-  sortScreenshotMetadataOldestFirst
-} from './restoreStoragePressureSelectors';
+  createEmptyRemovedCounts,
+  createRestoreStoragePressureResult,
+  hasUsableStorageEstimate,
+  readStorageEstimate,
+  type RestoreStoragePressureRemovedCounts,
+  type RestoreStoragePressureResult
+} from './restoreStoragePressureResult';
+import { createRestoreStoragePressureScreenshotCleanup } from './restoreStoragePressureScreenshotCleanup';
 export {
   createRestoreStoragePressureClient,
   RESTORE_STORAGE_PRESSURE_FAILED
@@ -22,29 +23,22 @@ export const PRIVATE_STORAGE_PRESSURE_POLICY = {
   targetRatio: 0.8,
   triggerAvailableFraction: 0.15,
   targetAvailableFraction: 0.2,
-  absoluteTargetBytes: 512 * 1024 * 1024
-};
+  absoluteTargetBytes: 536_870_912
+} as const;
 
-export interface RestoreStoragePressureRemovedCounts {
-  expiredScreenshots: number;
-  orphanScreenshots: number;
-  expiredDrafts: number;
-  excessDrafts: number;
-  newlyOrphanedScreenshots: number;
-}
-
-export interface RestoreStoragePressureResult extends RestoreStoragePressureMessageResult {
-  initialEstimate: StorageEstimateSnapshot;
-  finalEstimate: StorageEstimateSnapshot;
-  removed: RestoreStoragePressureRemovedCounts;
-}
+export type {
+  RestoreStoragePressureRemovedCounts,
+  RestoreStoragePressureResult
+} from './restoreStoragePressureResult';
 
 export interface RestoreStoragePressureServiceDependencies {
   drafts: Pick<StorageAreaService, 'getAll' | 'remove' | 'set'>;
-  screenshots: {
-    listAllMetadata(): Promise<VideoScreenshotCacheBlobMetadata[]>;
-    deleteMany(keys: readonly string[]): Promise<void>;
-  };
+  screenshots: Pick<VideoScreenshotCacheBlobObservationStore, 'listAllMetadata'>;
+  deleteScreenshotCandidates(keys: readonly string[]): Promise<{ deletedKeys: string[] }>;
+  deleteDraftCandidates(
+    keys: readonly string[],
+    cause: 'pressure-expired' | 'pressure-excess'
+  ): Promise<{ revisions: Array<{ draftKey: string; revision: number }> }>;
   estimate: StorageEstimateService;
   getStoragePolicy(): SessionDraftStoragePolicy;
   now?: () => number;
@@ -56,7 +50,7 @@ export interface RestoreStoragePressureService {
 }
 
 export function isStoragePressureTriggered(snapshot: StorageEstimateSnapshot): boolean {
-  if (!hasUsableEstimate(snapshot)) return false;
+  if (!hasUsableStorageEstimate(snapshot)) return false;
   return (
     snapshot.usage / snapshot.quota >= PRIVATE_STORAGE_PRESSURE_POLICY.triggerRatio ||
     snapshot.available <
@@ -68,7 +62,7 @@ export function isStoragePressureTriggered(snapshot: StorageEstimateSnapshot): b
 }
 
 export function isStoragePressureTargetReached(snapshot: StorageEstimateSnapshot): boolean {
-  if (!hasUsableEstimate(snapshot)) return false;
+  if (!hasUsableStorageEstimate(snapshot)) return false;
   return (
     snapshot.usage / snapshot.quota <= PRIVATE_STORAGE_PRESSURE_POLICY.targetRatio ||
     snapshot.available >=
@@ -85,53 +79,63 @@ export function createRestoreStoragePressureService(
   const now = dependencies.now ?? (() => Date.now());
   return {
     async inspect() {
-      const snapshot = await readEstimate(dependencies.estimate);
-      return result(
+      const snapshot = await readStorageEstimate(dependencies.estimate);
+      return createRestoreStoragePressureResult(
         isStoragePressureTriggered(snapshot),
-        !hasUsableEstimate(snapshot)
+        !hasUsableStorageEstimate(snapshot)
           ? 'estimate-unavailable'
           : isStoragePressureTriggered(snapshot)
             ? 'pressure-detected'
             : 'below-trigger',
         snapshot,
         snapshot,
-        emptyRemovedCounts()
+        createEmptyRemovedCounts()
       );
     },
     async runCleanup() {
-      const removed = emptyRemovedCounts();
-      const initialEstimate = await readEstimate(dependencies.estimate);
-      if (!hasUsableEstimate(initialEstimate)) {
-        return result(false, 'estimate-unavailable', initialEstimate, initialEstimate, removed);
+      const removed = createEmptyRemovedCounts();
+      const initialEstimate = await readStorageEstimate(dependencies.estimate);
+      if (!hasUsableStorageEstimate(initialEstimate)) {
+        return createRestoreStoragePressureResult(
+          false,
+          'estimate-unavailable',
+          initialEstimate,
+          initialEstimate,
+          removed
+        );
       }
       if (!isStoragePressureTriggered(initialEstimate)) {
-        return result(false, 'below-trigger', initialEstimate, initialEstimate, removed);
+        return createRestoreStoragePressureResult(
+          false,
+          'below-trigger',
+          initialEstimate,
+          initialEstimate,
+          removed
+        );
       }
 
       let finalEstimate: StorageEstimateSnapshot = initialEstimate;
       const refresh = async (): Promise<boolean> => {
-        finalEstimate = await readEstimate(dependencies.estimate);
-        return !hasUsableEstimate(finalEstimate) || isStoragePressureTargetReached(finalEstimate);
+        finalEstimate = await readStorageEstimate(dependencies.estimate);
+        return (
+          !hasUsableStorageEstimate(finalEstimate) || isStoragePressureTargetReached(finalEstimate)
+        );
       };
       let references = await readSessionDraftReferenceIndex(dependencies.drafts);
-      const deleteScreenshots = async (
-        candidates: readonly VideoScreenshotCacheBlobMetadata[],
-        counter: keyof Pick<
-          RestoreStoragePressureRemovedCounts,
-          'expiredScreenshots' | 'orphanScreenshots' | 'newlyOrphanedScreenshots'
-        >
-      ): Promise<boolean> => {
-        for (const entry of sortScreenshotMetadataOldestFirst(candidates)) {
-          await dependencies.screenshots.deleteMany([entry.key]);
-          removed[counter] += 1;
-          if (await refresh()) return true;
-        }
-        return false;
-      };
+      const screenshots = createRestoreStoragePressureScreenshotCleanup({
+        screenshots: dependencies.screenshots,
+        deleteCandidates: (keys) => dependencies.deleteScreenshotCandidates(keys),
+        removed,
+        refresh
+      });
 
-      const firstMetadata = await dependencies.screenshots.listAllMetadata();
+      const firstObservation = await screenshots.observe();
+      if (firstObservation.targetReached) {
+        return finish(initialEstimate, finalEstimate, removed);
+      }
+      const firstMetadata = firstObservation.entries;
       if (
-        await deleteScreenshots(
+        await screenshots.deleteMetadata(
           firstMetadata.filter(
             (entry) =>
               entry.expiresAt <= now() && !references.referencedScreenshotKeys.has(entry.key)
@@ -142,9 +146,13 @@ export function createRestoreStoragePressureService(
         return finish(initialEstimate, finalEstimate, removed);
       }
 
-      const orphanMetadata = await dependencies.screenshots.listAllMetadata();
+      const orphanObservation = await screenshots.observe();
+      if (orphanObservation.targetReached) {
+        return finish(initialEstimate, finalEstimate, removed);
+      }
+      const orphanMetadata = orphanObservation.entries;
       if (
-        await deleteScreenshots(
+        await screenshots.deleteMetadata(
           orphanMetadata.filter((entry) => !references.referencedScreenshotKeys.has(entry.key)),
           'orphanScreenshots'
         )
@@ -161,66 +169,47 @@ export function createRestoreStoragePressureService(
         )
         .map(({ key }) => key);
       if (expiredDraftKeys.length > 0) {
-        await removeSessionDraftStorageKeys(dependencies.drafts, expiredDraftKeys);
-        removed.expiredDrafts = expiredDraftKeys.length;
+        const deletion = await dependencies.deleteDraftCandidates(
+          expiredDraftKeys,
+          'pressure-expired'
+        );
+        removed.expiredDrafts = deletion.revisions.length;
         references = await readSessionDraftReferenceIndex(dependencies.drafts);
         if (await refresh()) return finish(initialEstimate, finalEstimate, removed);
       }
 
       const excessDraftKeys = selectExcessDraftKeys(references, policy);
       if (excessDraftKeys.length > 0) {
-        await removeSessionDraftStorageKeys(dependencies.drafts, excessDraftKeys);
-        removed.excessDrafts = excessDraftKeys.length;
+        const deletion = await dependencies.deleteDraftCandidates(
+          excessDraftKeys,
+          'pressure-excess'
+        );
+        removed.excessDrafts = deletion.revisions.length;
         references = await readSessionDraftReferenceIndex(dependencies.drafts);
         if (await refresh()) return finish(initialEstimate, finalEstimate, removed);
       }
 
-      const finalMetadata = await dependencies.screenshots.listAllMetadata();
+      const finalObservation = await screenshots.observe();
+      if (finalObservation.targetReached) {
+        return finish(initialEstimate, finalEstimate, removed);
+      }
+      const finalMetadata = finalObservation.entries;
       if (
-        await deleteScreenshots(
+        await screenshots.deleteMetadata(
           finalMetadata.filter((entry) => !references.referencedScreenshotKeys.has(entry.key)),
           'newlyOrphanedScreenshots'
         )
       ) {
         return finish(initialEstimate, finalEstimate, removed);
       }
-      return result(true, 'cleanup-exhausted', initialEstimate, finalEstimate, removed);
+      return createRestoreStoragePressureResult(
+        true,
+        'cleanup-exhausted',
+        initialEstimate,
+        finalEstimate,
+        removed
+      );
     }
-  };
-}
-
-function hasUsableEstimate(
-  snapshot: StorageEstimateSnapshot
-): snapshot is StorageEstimateSnapshot & { usage: number; quota: number; available: number } {
-  return (
-    snapshot.supported &&
-    typeof snapshot.usage === 'number' &&
-    Number.isFinite(snapshot.usage) &&
-    snapshot.usage >= 0 &&
-    typeof snapshot.quota === 'number' &&
-    Number.isFinite(snapshot.quota) &&
-    snapshot.quota > 0 &&
-    typeof snapshot.available === 'number' &&
-    Number.isFinite(snapshot.available) &&
-    snapshot.available >= 0
-  );
-}
-
-async function readEstimate(service: StorageEstimateService): Promise<StorageEstimateSnapshot> {
-  try {
-    return await service.getSnapshot();
-  } catch {
-    return { usage: null, quota: null, available: null, supported: true };
-  }
-}
-
-function emptyRemovedCounts(): RestoreStoragePressureRemovedCounts {
-  return {
-    expiredScreenshots: 0,
-    orphanScreenshots: 0,
-    expiredDrafts: 0,
-    excessDrafts: 0,
-    newlyOrphanedScreenshots: 0
   };
 }
 
@@ -229,21 +218,11 @@ function finish(
   finalEstimate: StorageEstimateSnapshot,
   removed: RestoreStoragePressureRemovedCounts
 ): RestoreStoragePressureResult {
-  return result(
+  return createRestoreStoragePressureResult(
     true,
-    hasUsableEstimate(finalEstimate) ? 'target-reached' : 'estimate-unavailable',
+    hasUsableStorageEstimate(finalEstimate) ? 'target-reached' : 'estimate-unavailable',
     initialEstimate,
     finalEstimate,
     removed
   );
-}
-
-function result(
-  triggered: boolean,
-  reason: RestoreStoragePressureResult['reason'],
-  initialEstimate: StorageEstimateSnapshot,
-  finalEstimate: StorageEstimateSnapshot,
-  removed: RestoreStoragePressureRemovedCounts
-): RestoreStoragePressureResult {
-  return { triggered, reason, initialEstimate, finalEstimate, removed: { ...removed } };
 }

@@ -1,11 +1,13 @@
 /* @vitest-environment jsdom */
 
+import './videoSessionTestHarness';
+
 import {
   __resetContentSessionRegistryForTests,
   isVideoSessionActive
 } from '@content/runtime/contentSessionRegistry';
 import { createSessionDraftStorageKey } from '@content/sessionDrafts/sessionDraftKeys';
-import { createSessionDraftRepository } from '@content/sessionDrafts/sessionDraftRepository';
+import { createDirectSessionDraftRepository as createSessionDraftRepository } from '@content/sessionDrafts/sessionDraftRepository';
 import { configureSessionDraftRuntimeMessenger } from '@content/sessionDrafts/sessionDraftTabContext';
 import type { SessionDraftOwnerContext } from '@content/sessionDrafts/sessionDraftTypes';
 import type { VideoPanelCallbacks } from '@content/video/application/videoPanelModel';
@@ -336,7 +338,7 @@ describe('VideoSession drafts', () => {
     vi.useRealTimers();
   });
 
-  it('writes discarded terminal envelopes to the current and restored exact draft keys before cleanup', async () => {
+  it('writes a discarded terminal envelope to the restored exact draft key before cleanup', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-03-14T10:00:00Z'));
     const deps = createDependencies();
@@ -400,23 +402,22 @@ describe('VideoSession drafts', () => {
 
     const beforeCancel = await listVideoDraftCandidates(deps, document.location.href, null);
     expect(beforeCancel).toHaveLength(2);
-    const currentDraft = beforeCancel.find((candidate) => candidate.draftId !== 'restored-draft');
-    if (!currentDraft) {
-      throw new Error('expected a current replacement draft');
-    }
-    const currentDraftKey = createSessionDraftStorageKey({
-      mode: 'video',
-      pageKey: currentDraft.pageKey,
-      draftId: currentDraft.draftId
-    });
+    expect(beforeCancel).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ draftId: restoredDraft.draftId, status: 'restorable' }),
+        expect.objectContaining({ status: 'active' })
+      ])
+    );
+    const currentBeforeCancel = beforeCancel.find(
+      (candidate) => candidate.draftId !== restoredDraft.draftId
+    );
+    if (!currentBeforeCancel) throw new Error('expected new current draft identity');
+    const currentDraftKey = createSessionDraftStorageKey(currentBeforeCancel);
 
     vi.mocked(deps.storage.local.remove).mockClear();
     vi.mocked(deps.storage.local.remove).mockImplementation(async (...args) => {
       const [value] = args;
-      if (
-        removalCallIncludesKey(value, currentDraftKey) ||
-        removalCallIncludesKey(value, restoredDraftKey)
-      ) {
+      if (removalCallIncludesKey(value, restoredDraftKey)) {
         throw new Error('terminal cleanup should be best-effort');
       }
       return await passthroughRemove(...args);
@@ -435,23 +436,14 @@ describe('VideoSession drafts', () => {
     }
     expect(draftIndex.entries).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ draftId: currentDraft.draftId, status: 'discarded' }),
         expect.objectContaining({ draftId: restoredDraft.draftId, status: 'discarded' })
       ])
     );
-    await expect(readStoredVideoDraft(deps, currentDraftKey)).resolves.toMatchObject({
-      draftId: currentDraft.draftId,
-      status: 'discarded'
-    });
     await expect(readStoredVideoDraft(deps, restoredDraftKey)).resolves.toMatchObject({
       draftId: restoredDraft.draftId,
       status: 'discarded'
     });
-    expect(
-      vi
-        .mocked(deps.storage.local.remove)
-        .mock.calls.filter(([value]) => removalCallIncludesKey(value, currentDraftKey))
-    ).toHaveLength(1);
+    await expect(readStoredVideoDraft(deps, currentDraftKey)).resolves.toBeUndefined();
     expect(
       vi
         .mocked(deps.storage.local.remove)
@@ -714,7 +706,7 @@ describe('VideoSession drafts', () => {
     vi.useRealTimers();
   });
 
-  it('keeps capture edits committed and retries restored-draft cleanup after the durable save succeeds', async () => {
+  it('keeps capture edits in the new current draft while restored cleanup retries', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-03-14T10:00:00Z'));
     const deps = createDependencies();
@@ -789,7 +781,16 @@ describe('VideoSession drafts', () => {
       await listVideoDraftCandidates(deps, document.location.href, null)
     ).map((candidate) => candidate.draftId);
     expect(draftIdsAfterFailedCleanup).toContain('restored-draft');
-    expect(draftIdsAfterFailedCleanup.length).toBeGreaterThanOrEqual(2);
+    expect(draftIdsAfterFailedCleanup).toHaveLength(2);
+    const currentDraftId = draftIdsAfterFailedCleanup.find(
+      (draftId) => draftId !== 'restored-draft'
+    );
+    if (!currentDraftId) throw new Error('expected new current draft identity');
+    const currentDraftKey = createSessionDraftStorageKey({
+      mode: 'video',
+      pageKey: restoredDraft.pageKey,
+      draftId: currentDraftId
+    });
 
     view.stopEditing.mockClear();
     await requirePromise(callbacks.onSubmitCaptureEdit('ts-1', 'committed note v2'));
@@ -799,7 +800,12 @@ describe('VideoSession drafts', () => {
     const draftIdsAfterRetry = (
       await listVideoDraftCandidates(deps, document.location.href, null)
     ).map((candidate) => candidate.draftId);
-    expect(draftIdsAfterRetry).not.toContain('restored-draft');
+    expect(draftIdsAfterRetry).toEqual([currentDraftId]);
+    await expect(readStoredVideoDraft(deps, restoredDraftKey)).resolves.toBeUndefined();
+    await expect(readStoredVideoDraft(deps, currentDraftKey)).resolves.toMatchObject({
+      draftId: currentDraftId,
+      payload: { captures: [expect.objectContaining({ comment: 'committed note v2' })] }
+    });
     expect(
       vi
         .mocked(deps.storage.local.remove)

@@ -1,5 +1,7 @@
 /* @vitest-environment jsdom */
 
+import './videoSessionTestHarness';
+
 import {
   __resetContentSessionRegistryForTests,
   isVideoSessionActive,

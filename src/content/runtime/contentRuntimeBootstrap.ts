@@ -160,6 +160,7 @@ export function initializeClipperRuntime(options: ContentRuntimeBootstrapOptions
       document,
       window,
       storage,
+      messaging,
       getSessionDraftStoragePolicy,
       currentUrl: () => window.location.href,
       createReaderSession: () => createReaderSession(document, window.location.href),

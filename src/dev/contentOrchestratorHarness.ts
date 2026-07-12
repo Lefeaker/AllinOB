@@ -26,8 +26,10 @@ import { registerService, TOKENS } from '../shared/di';
 import { registerFallbackRepositories } from '../shared/di/serviceRegistry';
 import { createPreviewPlatformServices } from '../platform/preview/services';
 import { DEFAULT_RUNTIME_MESSAGES } from '@i18n';
+import { createDirectSessionDraftRepository as createSessionDraftRepository } from '../content/sessionDrafts/sessionDraftRepository';
 
 type HarnessStorageValue = Parameters<StorageAreaService['set']>[1];
+type HarnessVideoState = { state: { captures: readonly object[] } };
 const status = document.getElementById('status');
 function setStatus(message: string): void {
   if (status) {
@@ -77,7 +79,6 @@ const storage: StorageService = {
   sync: createStorageArea(),
   session: createStorageArea()
 };
-
 const configuredInterfaceTheme =
   new URLSearchParams(window.location.search).get('interfaceTheme') === 'light' ? 'light' : 'dark';
 setControlledRuntimeTheme(window, configuredInterfaceTheme);
@@ -91,7 +92,6 @@ const HARNESS_VIDEO_OPTIONS = {
   controlBarScreenshot: true,
   commentEditorAutoPause: false
 };
-
 const optionsRepository = {
   get() {
     return Promise.resolve({
@@ -105,7 +105,6 @@ const optionsRepository = {
     return () => undefined;
   }
 };
-
 const clipRepo = {
   getFragmentConfig() {
     return Promise.resolve({
@@ -126,7 +125,6 @@ const clipRepo = {
 const previewPlatformServices = createPreviewPlatformServices(storage);
 registerService(TOKENS.platformServices, () => previewPlatformServices);
 registerFallbackRepositories();
-
 const runtime = previewPlatformServices.runtime;
 const runtimeState = createContentRuntimeState({
   optionsRepository: optionsRepository as never,
@@ -149,6 +147,7 @@ function buildReaderDependencies(): ReaderSessionDependencies {
     viewFactory: createReaderPanelViewFactory(),
     optionsRepository: optionsRepository as never,
     storage,
+    sessionDraftRepository: createSessionDraftRepository(storage.local),
     messaging: {
       send<TResult>(message: Parameters<MessagingService['send']>[0]): Promise<TResult> {
         console.info('[harness:reader:send]', message);
@@ -261,10 +260,13 @@ async function startVideoSession(): Promise<void> {
         return () => undefined;
       }
     } as never,
-    storage
+    storage,
+    sessionDraftRepository: createSessionDraftRepository(storage.local)
   } as never);
   await activeVideo.start();
   await activeVideo.addCurrentTimestamp();
+  const captureCount = (activeVideo as object as HarnessVideoState).state.captures.length;
+  if (captureCount !== 1) throw new Error(`Expected one video capture, received ${captureCount}.`);
   setStatus('VideoSession mounted and one capture added');
 }
 
@@ -303,7 +305,6 @@ async function showSupportPrompt(): Promise<void> {
   await prompt.show({ status: 'success', vaultName: 'Harness Vault' });
   setStatus('SupportPrompt mounted');
 }
-
 document.getElementById('open-clipper')?.addEventListener('click', () => {
   void openClipperDialog().catch((error) => {
     console.error('[harness:clipper]', error);
@@ -334,7 +335,6 @@ document.getElementById('show-support-prompt')?.addEventListener('click', () => 
     setStatus(`Support prompt failed: ${String(error)}`);
   });
 });
-
 (
   window as Window & {
     harness?: {

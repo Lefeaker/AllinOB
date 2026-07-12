@@ -1,7 +1,7 @@
 /* @vitest-environment jsdom */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { createSessionDraftRepository } from '@content/sessionDrafts';
+import { createDirectSessionDraftRepository as createSessionDraftRepository } from '@content/sessionDrafts';
 import { VideoSessionState } from '@content/video/sessionState';
 import { createMemoryStorageArea } from '@platform/preview/memoryStorage';
 
@@ -34,6 +34,11 @@ describe('VideoSessionDraftController title fallback', () => {
       await import('../../../../src/content/video/videoSessionDraftController');
     const storage = createMemoryStorageArea();
     const repository = createSessionDraftRepository(storage);
+    const versionedRepository = {
+      ...repository,
+      claim: () => Promise.resolve(),
+      runWriteOperation: () => Promise.reject(new Error('unexpected write operation'))
+    };
     const state = new VideoSessionState('gradient');
     state.captures = [
       {
@@ -50,6 +55,7 @@ describe('VideoSessionDraftController title fallback', () => {
       doc: document,
       state,
       storageArea: storage,
+      repository: versionedRepository,
       destinationState: {
         metadata: undefined,
         applyMetadata: vi.fn()

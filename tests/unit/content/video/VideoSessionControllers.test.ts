@@ -59,7 +59,10 @@ describe('createVideoSessionControllers', () => {
     });
 
     await expect(
-      controllers.persistPreparedScreenshot('capture-1', asType({ id: 'shot-1' }))
+      controllers.persistPreparedScreenshot(
+        asType({ kind: 'timestamp', id: 'capture-1' }),
+        asType({ id: 'shot-1' })
+      )
     ).resolves.toEqual({
       status: 'skipped',
       reason: 'serialize-failed',

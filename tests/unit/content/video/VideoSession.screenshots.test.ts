@@ -1,10 +1,12 @@
 /* @vitest-environment jsdom */
 
+import './videoSessionTestHarness';
+
 import {
   __resetContentSessionRegistryForTests,
   isVideoSessionActive
 } from '@content/runtime/contentSessionRegistry';
-import { createSessionDraftRepository } from '@content/sessionDrafts/sessionDraftRepository';
+import { createDirectSessionDraftRepository as createSessionDraftRepository } from '@content/sessionDrafts/sessionDraftRepository';
 import type { VideoSessionDraftEnvelope } from '@content/sessionDrafts/sessionDraftTypes';
 import type { VideoPanelCallbacks } from '@content/video/application/videoPanelModel';
 import { VideoSession } from '@content/video/session';
@@ -36,6 +38,7 @@ import {
   loadLatestVideoDraft,
   readFirstCacheSaveInput,
   readLatestVideoDraftCandidate,
+  readVideoDraftCandidateWithScreenshotRef,
   readVideoDraftPayload,
   requireMountedPanelCallbacks,
   requirePromise,
@@ -1830,14 +1833,11 @@ describe('VideoSession screenshots', () => {
       expect(analyticsPayload).not.toContain(savedRef.pageKey);
       expect(analyticsPayload).not.toContain('prepared-frame');
       expect(analyticsPayload).not.toContain('byteLength');
-      let latestCandidate = await readLatestVideoDraftCandidate(deps);
+      let latestCandidate = await readVideoDraftCandidateWithScreenshotRef(deps, 'ts-1');
       for (let index = 0; index < 20; index += 1) {
-        const latestCapture = readVideoDraftPayload(latestCandidate)?.captures[0];
-        if (latestCapture?.kind === 'timestamp' && latestCapture.screenshotRef) {
-          break;
-        }
+        if (latestCandidate) break;
         await flushMutationWork();
-        latestCandidate = await readLatestVideoDraftCandidate(deps);
+        latestCandidate = await readVideoDraftCandidateWithScreenshotRef(deps, 'ts-1');
       }
       const latestCapture = readVideoDraftPayload(latestCandidate)?.captures[0];
       expect(latestCapture).toMatchObject({
@@ -1978,7 +1978,7 @@ describe('VideoSession screenshots', () => {
       const screenshot = await waitForTimestampScreenshot(restoredTimestamp);
       await flushMutationWork();
 
-      expect(saveSpy).toHaveBeenCalledTimes(1);
+      expect(saveSpy).toHaveBeenCalledTimes(2);
       expect(restoredTimestamp.screenshot).toBe(screenshot);
       expect(restoredTimestamp.screenshotRef).toBeUndefined();
       expect(currentTime).toBe(8);

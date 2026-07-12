@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Mock, MockInstance } from 'vitest';
 import {
   createSessionDraftPageKey,
-  createSessionDraftRepository,
+  createDirectSessionDraftRepository as createSessionDraftRepository,
   createSessionDraftStorageKey,
   createSessionDraftStoragePolicy,
   type SessionDraftStoragePolicy,
@@ -28,6 +28,7 @@ import {
   type VideoScreenshotCacheRef
 } from '@content/video/videoScreenshotCacheTypes';
 import type { VideoScreenshotCacheRepository } from '@content/video/videoScreenshotCacheRepository';
+import type { VersionedSessionDraftRepository } from '@content/sessionDrafts/sessionDraftClientRepository';
 
 type TrackedStorageArea = StorageAreaService & {
   setMany: Mock<StorageAreaService['setMany']>;
@@ -45,6 +46,32 @@ function createTrackedStorageArea(): TrackedStorageArea {
     ...area,
     setMany: vi.fn<StorageAreaService['setMany']>(area.setMany),
     remove: vi.fn<StorageAreaService['remove']>(area.remove)
+  };
+}
+
+function createTestVersionedRepository(
+  area: StorageAreaService,
+  storagePolicy?: SessionDraftStoragePolicy
+): VersionedSessionDraftRepository {
+  const repository = createSessionDraftRepository(
+    area,
+    storagePolicy ? { retentionPolicy: storagePolicy.retentionPolicy } : {}
+  );
+  return {
+    ...repository,
+    claim: () => Promise.resolve(),
+    runWriteOperation(draftKey, task) {
+      return task({
+        context: {
+          operationId: 'test-video-draft-operation',
+          epoch: 1,
+          draftKey,
+          baseRevision: 0,
+          nextRevision: 1
+        },
+        commit: (draft) => repository.save(draft)
+      });
+    }
   };
 }
 
@@ -164,6 +191,7 @@ function createHarness(
     state,
     destinationState,
     storageArea: storage,
+    repository: createTestVersionedRepository(storage, options.sessionDraftStoragePolicy),
     dom,
     onScreenshotHydrationChange: options.onScreenshotHydrationChange,
     ...(options.sessionDraftStoragePolicy
@@ -1036,7 +1064,7 @@ describe('VideoSessionDraftController', () => {
     expect(trackDraftRestoreEvent).toHaveBeenCalledTimes(1);
   });
 
-  it('writes exported terminal envelopes to the current and restored exact keys before cleanup', async () => {
+  it('writes the exported terminal envelope to the claimed restored exact key before cleanup', async () => {
     const harness = createHarness();
     const { storage, controller, repository, state, setDomDrafts } = harness;
     const { draft: restoredDraft, storageKey: restoredDraftKey } = await seedRestorableDraft(
@@ -1067,10 +1095,10 @@ describe('VideoSessionDraftController', () => {
 
     const candidates = await repository.listCandidates('video', document.location.href);
     const currentDraft = candidates.find(
-      (candidate) => candidate.draftId !== restoredDraft.draftId
+      (candidate) => candidate.draftId === restoredDraft.draftId
     );
     if (!currentDraft || currentDraft.mode !== 'video') {
-      throw new Error('expected a current replacement draft');
+      throw new Error('expected the claimed restored draft');
     }
     const currentDraftKey = getDraftStorageKey(currentDraft);
 
@@ -1091,10 +1119,7 @@ describe('VideoSessionDraftController', () => {
       draftId: currentDraft.draftId,
       status: 'exported'
     });
-    await expect(storage.get<VideoSessionDraftEnvelope>(restoredDraftKey)).resolves.toMatchObject({
-      draftId: restoredDraft.draftId,
-      status: 'exported'
-    });
+    expect(currentDraftKey).toBe(restoredDraftKey);
   });
 
   it('returns false on terminal persistence failure and keeps the active draft intact', async () => {
@@ -1242,6 +1267,7 @@ describe('VideoSessionDraftController', () => {
   it.each([
     {
       label: 'restored',
+      expectsWarning: true,
       prepare: async (harness: ReturnType<typeof createHarness>) => {
         const { storageKey } = await seedRestorableDraft(harness.storage, { commentDrafts: {} });
         await harness.controller.restoreDraftState();
@@ -1250,6 +1276,7 @@ describe('VideoSessionDraftController', () => {
     },
     {
       label: 'legacy',
+      expectsWarning: true,
       prepare: async (harness: ReturnType<typeof createHarness>) => {
         await harness.storage.set('legacy-video-captures', { legacy: true });
         harness.controller.handleLegacyRestore('legacy-video-captures');
@@ -1257,26 +1284,33 @@ describe('VideoSessionDraftController', () => {
         return 'legacy-video-captures';
       }
     }
-  ])('$label cleanup failures are warned but not fatal', async ({ prepare }) => {
+  ])('$label cleanup failures are warned but not fatal', async ({ prepare, expectsWarning }) => {
     const harness = createHarness();
     const { controller, repository, state, setDomDrafts, storage } = harness;
     const targetKey = await prepare(harness);
     state.captures = [createTimestampCapture('ts-1')];
     setDomDrafts({});
-    storage.remove.mockImplementation(async (value) => {
+    storage.remove.mockImplementation((value) => {
       if (matchesRemovalKey(value, targetKey)) {
-        throw new Error(`cleanup failed for ${targetKey}`);
+        return Promise.reject(new Error(`cleanup failed for ${targetKey}`));
       }
-      return undefined;
+      return Promise.resolve();
     });
 
     const result = await controller.flushNow('active');
 
     expect(result).toBe('ready');
-    expect(warnSpy).toHaveBeenCalledWith(
-      '[VideoSession] Failed to clear superseded durable draft sources:',
-      expect.any(Error)
-    );
+    if (expectsWarning) {
+      expect(warnSpy).toHaveBeenCalledWith(
+        '[VideoSession] Failed to clear superseded durable draft sources:',
+        expect.any(Error)
+      );
+    } else {
+      expect(warnSpy).not.toHaveBeenCalledWith(
+        '[VideoSession] Failed to clear superseded durable draft sources:',
+        expect.any(Error)
+      );
+    }
     await expect(repository.listCandidates('video', document.location.href)).resolves.toEqual(
       expect.arrayContaining([expect.objectContaining({ status: 'active' })])
     );

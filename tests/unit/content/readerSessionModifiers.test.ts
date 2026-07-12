@@ -5,6 +5,7 @@ import { testPlatformHarness } from '../../setup/globalSetup';
 import type { TestPlatformHarness } from '../../utils/platformTestHarness';
 import { DEFAULT_FRAGMENT_CONFIG } from '@content/clipper/services/fragmentConfig';
 import { ReaderPanelCoordinator } from '@content/reader/panelCoordinator';
+import { ReaderEnvironmentController } from '@content/reader/environmentController';
 import { ReaderSession } from '@content/reader/session';
 import { DEFAULT_SESSION_MESSAGES } from '@content/reader/sessionMessages';
 import { ReaderSessionExporter } from '@content/reader/services/exporter';
@@ -12,12 +13,14 @@ import { ReaderHighlightManager } from '@content/reader/services/highlightManage
 import { ReaderSelectionController } from '@content/reader/services/selectionController';
 import type { ReaderSessionDependencies } from '@content/reader/session';
 import { ReaderSessionLifecycle } from '@content/reader/sessionLifecycle';
+import type { ReaderPanelEditingSnapshot } from '@content/reader/application/readerSessionView';
 import {
   buildReaderFullMarkdown,
   buildReaderHighlightsMarkdown
 } from '@content/reader/utils/markdownBuilder';
 import { __resetContentSessionRegistryForTests } from '@content/runtime/contentSessionRegistry';
 import type { FragmentClipperOptions } from '@shared/types/options';
+import { createDirectSessionDraftRepository as createSessionDraftRepository } from '@content/sessionDrafts/sessionDraftRepository';
 
 const promptMock = vi.hoisted(() => vi.fn());
 const platformHarness: TestPlatformHarness = testPlatformHarness;
@@ -113,9 +116,9 @@ describe('ReaderSession selection modifiers', () => {
       viewFactory: {
         createView: vi.fn(() => {
           let currentDrafts: Record<string, string> = {};
-          let editingSnapshot = {
-            editingHighlightId: null as string | null,
-            pendingNoteFocusHighlightId: null as string | null
+          let editingSnapshot: ReaderPanelEditingSnapshot = {
+            editingHighlightId: null,
+            pendingNoteFocusHighlightId: null
           };
 
           return {
@@ -168,7 +171,8 @@ describe('ReaderSession selection modifiers', () => {
         set: vi.fn(),
         onChange: vi.fn(() => () => undefined)
       },
-      storage: platformHarness.storage as never,
+      storage: platformHarness.storage,
+      sessionDraftRepository: createSessionDraftRepository(platformHarness.storage.local),
       messaging: {
         send: vi.fn()
       },
@@ -183,23 +187,24 @@ describe('ReaderSession selection modifiers', () => {
       createHighlightManager: (doc) => new ReaderHighlightManager(doc),
       createSelectionController: (options) => new ReaderSelectionController(options),
       createPanelCoordinator: (options) => new ReaderPanelCoordinator(options),
-      createEnvironmentController: (_deps, handlers) =>
-        ({
-          start: vi.fn(async () => {
-            const fragmentConfig = {
-              ...DEFAULT_FRAGMENT_CONFIG,
-              ...config
-            };
-            handlers.onMessagesUpdate(DEFAULT_SESSION_MESSAGES);
-            handlers.onFragmentConfigUpdate(fragmentConfig);
-            return {
-              controller: null,
-              messages: DEFAULT_SESSION_MESSAGES,
-              fragmentConfig
-            };
-          }),
-          stop: vi.fn()
-        }) as never,
+      createEnvironmentController: (environmentDependencies, handlers) => {
+        const environment = new ReaderEnvironmentController(environmentDependencies, handlers);
+        vi.spyOn(environment, 'start').mockImplementation(() => {
+          const fragmentConfig = {
+            ...DEFAULT_FRAGMENT_CONFIG,
+            ...config
+          };
+          handlers.onMessagesUpdate(DEFAULT_SESSION_MESSAGES);
+          handlers.onFragmentConfigUpdate(fragmentConfig);
+          return Promise.resolve({
+            controller: null,
+            messages: DEFAULT_SESSION_MESSAGES,
+            fragmentConfig
+          });
+        });
+        vi.spyOn(environment, 'stop').mockImplementation(() => undefined);
+        return environment;
+      },
       createLifecycle: (deps, handlers) => new ReaderSessionLifecycle(deps, handlers),
       exporter: new ReaderSessionExporter({
         buildHighlightsMarkdown: buildReaderHighlightsMarkdown,
@@ -252,8 +257,7 @@ describe('ReaderSession selection modifiers', () => {
     target.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, button: 0 }));
     await flushAsyncWork();
 
-    const highlights = (session as unknown as { __testHighlights: unknown[] }).__testHighlights;
-    expect(highlights).toHaveLength(1);
+    expect(session.__testHighlights).toHaveLength(1);
   });
 
   it('does not add highlight when modifier keys are missing', async () => {
@@ -270,8 +274,7 @@ describe('ReaderSession selection modifiers', () => {
 
     expect(promptMock).not.toHaveBeenCalled();
 
-    const highlights = (session as unknown as { __testHighlights: unknown[] }).__testHighlights;
-    expect(highlights).toHaveLength(0);
+    expect(session.__testHighlights).toHaveLength(0);
   });
 
   it('ignores modifier requirement when disabled', async () => {
@@ -287,7 +290,6 @@ describe('ReaderSession selection modifiers', () => {
     target.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, button: 0 }));
     await flushAsyncWork();
 
-    const highlights = (session as unknown as { __testHighlights: unknown[] }).__testHighlights;
-    expect(highlights).toHaveLength(1);
+    expect(session.__testHighlights).toHaveLength(1);
   });
 });

@@ -10,7 +10,7 @@ import {
 import type { ReaderHighlightRecord } from '@content/reader/services/highlightManager';
 import {
   FREE_SESSION_DRAFT_MAX_ITEMS_PER_PAGE,
-  createSessionDraftRepository
+  createDirectSessionDraftRepository as createSessionDraftRepository
 } from '@content/sessionDrafts';
 import { createMemoryStorageArea } from '@platform/preview/memoryStorage';
 

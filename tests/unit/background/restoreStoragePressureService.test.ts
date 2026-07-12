@@ -31,6 +31,14 @@ import type { StorageEstimateSnapshot } from '../../../src/background/services/s
 
 const MIB = 1024 * 1024;
 const BASE_TIME = 2_000_000_000_000;
+const EXACT_PRESSURE_POLICY: {
+  readonly triggerRatio: 0.9;
+  readonly targetRatio: 0.8;
+  readonly triggerAvailableFraction: 0.15;
+  readonly targetAvailableFraction: 0.2;
+  readonly absoluteTargetBytes: 536_870_912;
+} = PRIVATE_STORAGE_PRESSURE_POLICY;
+void EXACT_PRESSURE_POLICY;
 
 function estimate(usage: number, quota = 1_000): StorageEstimateSnapshot {
   return { usage, quota, available: Math.max(0, quota - usage), supported: true };
@@ -116,23 +124,38 @@ function draftKey(value: VideoSessionDraftEnvelope): string {
 
 class MetadataStore {
   readonly values = new Map<string, VideoScreenshotCacheBlobMetadata>();
+  readonly invalidKeys = new Set<string>();
   constructor(
     entries: readonly VideoScreenshotCacheBlobMetadata[],
-    private readonly events: string[]
+    private readonly events: string[],
+    invalidKeys: readonly string[] = []
   ) {
     entries.forEach((entry) => this.values.set(entry.key, entry));
+    invalidKeys.forEach((key) => this.invalidKeys.add(key));
   }
 
-  listAllMetadata(): Promise<VideoScreenshotCacheBlobMetadata[]> {
-    return Promise.resolve([...this.values.values()]);
+  listAllMetadata() {
+    return Promise.resolve({
+      entries: [...this.values.values()],
+      invalidKeys: [...this.invalidKeys]
+    });
   }
 
   deleteMany(keys: readonly string[]): Promise<void> {
     for (const key of keys) {
       this.events.push(`screenshot:${readId(key)}`);
       this.values.delete(key);
+      this.invalidKeys.delete(key);
     }
     return Promise.resolve();
+  }
+
+  async deleteCandidates(keys: readonly string[]): Promise<{ deletedKeys: string[] }> {
+    const deletedKeys = [...new Set(keys)]
+      .filter((key) => this.values.has(key) || this.invalidKeys.has(key))
+      .sort();
+    await this.deleteMany(deletedKeys);
+    return { deletedKeys };
   }
 }
 
@@ -176,6 +199,15 @@ function createPolicy(): SessionDraftStoragePolicy {
       maxContentBytes: 1024 * 1024
     }
   });
+}
+
+function deleteDraftCandidates(area: ReturnType<typeof createMemoryStorageArea>) {
+  return async (keys: readonly string[]) => {
+    await area.remove([...keys]);
+    return {
+      revisions: [...new Set(keys)].sort().map((draftKey) => ({ draftKey, revision: 1 }))
+    };
+  };
 }
 
 describe('restoreStoragePressureService', () => {
@@ -225,6 +257,8 @@ describe('restoreStoragePressureService', () => {
     const below = createRestoreStoragePressureService({
       drafts: area,
       screenshots,
+      deleteScreenshotCandidates: (keys) => screenshots.deleteCandidates(keys),
+      deleteDraftCandidates: deleteDraftCandidates(area),
       estimate: { getSnapshot: () => Promise.resolve(estimate(849)) },
       getStoragePolicy: createPolicy,
       now: () => BASE_TIME
@@ -248,6 +282,8 @@ describe('restoreStoragePressureService', () => {
     const invalid = createRestoreStoragePressureService({
       drafts: area,
       screenshots,
+      deleteScreenshotCandidates: (keys) => screenshots.deleteCandidates(keys),
+      deleteDraftCandidates: deleteDraftCandidates(area),
       estimate: {
         getSnapshot: () =>
           Promise.resolve({ usage: null, quota: null, available: null, supported: true })
@@ -304,10 +340,14 @@ describe('restoreStoragePressureService', () => {
   ])(
     'returns the same sanitized no-trigger reason for %s estimates',
     async (_label, getSnapshot) => {
-      const deleteMany = vi.fn();
+      const deleteScreenshotCandidates = vi.fn(() => Promise.resolve({ deletedKeys: [] }));
       const service = createRestoreStoragePressureService({
         drafts: createMemoryStorageArea(),
-        screenshots: { listAllMetadata: () => Promise.resolve([]), deleteMany },
+        screenshots: {
+          listAllMetadata: () => Promise.resolve({ entries: [], invalidKeys: [] })
+        },
+        deleteScreenshotCandidates,
+        deleteDraftCandidates: deleteDraftCandidates(createMemoryStorageArea()),
         estimate: { getSnapshot },
         getStoragePolicy: createPolicy,
         now: () => BASE_TIME
@@ -318,9 +358,34 @@ describe('restoreStoragePressureService', () => {
       expect(result.triggered).toBe(false);
       expect(result.reason).toBe('estimate-unavailable');
       expect(result.finalEstimate).not.toHaveProperty('error');
-      expect(deleteMany).not.toHaveBeenCalled();
+      expect(deleteScreenshotCandidates).not.toHaveBeenCalled();
     }
   );
+
+  it('routes invalid raw screenshot rows through deletion authority', async () => {
+    const events: string[] = [];
+    const invalidKey = screenshotRef('invalid-raw').key;
+    const screenshots = new MetadataStore([], events, [invalidKey]);
+    const service = createRestoreStoragePressureService({
+      drafts: createMemoryStorageArea(),
+      screenshots,
+      deleteScreenshotCandidates: (keys) => screenshots.deleteCandidates(keys),
+      deleteDraftCandidates: deleteDraftCandidates(createMemoryStorageArea()),
+      estimate: {
+        getSnapshot: vi.fn().mockResolvedValueOnce(estimate(950)).mockResolvedValue(estimate(700))
+      },
+      getStoragePolicy: createPolicy,
+      now: () => BASE_TIME
+    });
+
+    await expect(service.runCleanup()).resolves.toMatchObject({
+      triggered: true,
+      reason: 'target-reached',
+      removed: { orphanScreenshots: 1 }
+    });
+    expect(events).toEqual(['screenshot:invalid-raw']);
+    expect(screenshots.invalidKeys.size).toBe(0);
+  });
 
   it('runs the exact five stages, orders equal access times by key, and recomputes refs', async () => {
     const events: string[] = [];
@@ -367,6 +432,8 @@ describe('restoreStoragePressureService', () => {
     const service = createRestoreStoragePressureService({
       drafts: area,
       screenshots,
+      deleteScreenshotCandidates: (keys) => screenshots.deleteCandidates(keys),
+      deleteDraftCandidates: deleteDraftCandidates(area),
       estimate: { getSnapshot },
       getStoragePolicy: createPolicy,
       now: () => BASE_TIME
@@ -427,6 +494,8 @@ describe('restoreStoragePressureService', () => {
     const service = createRestoreStoragePressureService({
       drafts: area,
       screenshots,
+      deleteScreenshotCandidates: (keys) => screenshots.deleteCandidates(keys),
+      deleteDraftCandidates: deleteDraftCandidates(area),
       estimate: { getSnapshot: () => Promise.resolve(estimate(950)) },
       getStoragePolicy: createPolicy,
       now: () => BASE_TIME

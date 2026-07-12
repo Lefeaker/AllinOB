@@ -1,7 +1,6 @@
 import type { VideoPlatformContext } from './platforms';
 import type { VideoFragmentCapture } from './types';
 import type { VideoSessionDependencies } from './sessionTypes';
-import { createSessionDraftPageKey } from '../sessionDrafts';
 import type { ContentExportDestinationState } from '../shared/exportDestinationState';
 import { FragmentHighlighter } from './fragmentHighlighter';
 import { PendingSelectionTracker } from './pendingSelectionTracker';
@@ -17,7 +16,7 @@ import { VideoSessionState } from './sessionState';
 import { VideoSessionPlatformController } from './sessionPlatformController';
 import { VideoSessionDomController } from './sessionDom';
 import { VideoSessionDraftController } from './videoSessionDraftController';
-import type { VideoCaptureScreenshot } from './types';
+import type { VideoCaptureScreenshot, VideoTimestampCapture } from './types';
 import type {
   VideoScreenshotCacheRepository,
   VideoScreenshotCacheSaveResult
@@ -38,7 +37,7 @@ export interface VideoSessionControllers {
   dom: VideoSessionDomController;
   draftController: VideoSessionDraftController;
   persistPreparedScreenshot: (
-    captureId: string,
+    capture: VideoTimestampCapture,
     screenshot: VideoCaptureScreenshot
   ) => Promise<VideoScreenshotCacheSaveResult>;
 }
@@ -164,21 +163,13 @@ export function createVideoSessionControllers(args: {
   // need durable screenshot cache behavior must inject a repository explicitly.
   const screenshotCache =
     dependencies.screenshotCacheRepository ?? createUnavailableVideoScreenshotCacheRepository();
-  const persistPreparedScreenshot = (
-    captureId: string,
-    screenshot: VideoCaptureScreenshot
-  ): Promise<VideoScreenshotCacheSaveResult> =>
-    screenshotCache.save({
-      pageKey: createSessionDraftPageKey('video', doc.location.href),
-      captureId,
-      screenshot
-    });
   const dom = new VideoSessionDomController(doc, dependencies.viewFactory, hintManager);
   const draftController = new VideoSessionDraftController({
     doc,
     state,
     destinationState,
     storageArea: dependencies.storage.local,
+    repository: dependencies.sessionDraftRepository,
     ...(dependencies.sessionDraftStoragePolicy
       ? { sessionDraftStoragePolicy: dependencies.sessionDraftStoragePolicy }
       : {}),
@@ -191,6 +182,11 @@ export function createVideoSessionControllers(args: {
     onScreenshotHydrationSettled: onDraftScreenshotHydrationSettled,
     readCleanupState
   });
+  const persistPreparedScreenshot = (
+    capture: VideoTimestampCapture,
+    screenshot: VideoCaptureScreenshot
+  ): Promise<VideoScreenshotCacheSaveResult> =>
+    draftController.persistPreparedScreenshot(capture, screenshot);
   const platformController = new VideoSessionPlatformController({
     doc,
     storage: dependencies.storage.local,

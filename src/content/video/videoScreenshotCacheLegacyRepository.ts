@@ -3,7 +3,7 @@ import {
   serializedAttachmentContentToBlob
 } from '../../shared/attachments/clipAttachmentBinary';
 import type { StorageAreaService } from '../../platform/interfaces/storage';
-import type { VideoCaptureScreenshot } from './types';
+import type { VideoScreenshotCacheBlobSaveInput } from './videoScreenshotCacheRepositoryTypes';
 import { runSerializedVideoScreenshotCacheIndexMutation } from './videoScreenshotCacheIndexMutationQueue';
 import {
   buildVideoScreenshotCacheRef,
@@ -45,14 +45,6 @@ export interface VideoScreenshotCacheLegacyRepositoryOptions {
 }
 
 export type VideoScreenshotCacheLegacyLoadResult = { entry: VideoScreenshotCacheEntry; blob: Blob };
-
-export type VideoScreenshotCacheBlobSaveInput = {
-  pageKey: string;
-  captureId: string;
-  screenshot: VideoCaptureScreenshot & {
-    content: Extract<NonNullable<VideoCaptureScreenshot['content']>, { kind: 'blob' }>;
-  };
-};
 
 export async function removeLegacyVideoScreenshotCacheKeys(
   area: StorageAreaService | undefined,
@@ -98,7 +90,8 @@ export async function loadLegacyVideoScreenshotCacheEntry(
   area: StorageAreaService | undefined,
   ref: VideoScreenshotCacheRef,
   operationTime: number,
-  options: Pick<VideoScreenshotCacheLegacyRepositoryOptions, 'maxContentBytes'>
+  options: Pick<VideoScreenshotCacheLegacyRepositoryOptions, 'maxContentBytes'>,
+  deleteCandidates?: (keys: readonly string[]) => Promise<void>
 ): Promise<VideoScreenshotCacheLegacyLoadResult | null> {
   if (!area) {
     return null;
@@ -106,7 +99,8 @@ export async function loadLegacyVideoScreenshotCacheEntry(
 
   const rawEntry = await area.get(ref.key);
   if (rawEntry === undefined) {
-    await removeLegacyVideoScreenshotCacheKeys(area, [ref.key], options);
+    await (deleteCandidates?.([ref.key]) ??
+      removeLegacyVideoScreenshotCacheKeys(area, [ref.key], options));
     return null;
   }
 
@@ -116,7 +110,8 @@ export async function loadLegacyVideoScreenshotCacheEntry(
     entry.expiresAt <= operationTime ||
     !matchesVideoScreenshotCacheRef(entry, ref)
   ) {
-    await removeLegacyVideoScreenshotCacheKeys(area, [ref.key], options);
+    await (deleteCandidates?.([ref.key]) ??
+      removeLegacyVideoScreenshotCacheKeys(area, [ref.key], options));
     return null;
   }
 
@@ -132,7 +127,8 @@ export async function loadLegacyVideoScreenshotCacheEntry(
       )
     };
   } catch {
-    await removeLegacyVideoScreenshotCacheKeys(area, [ref.key], options);
+    await (deleteCandidates?.([ref.key]) ??
+      removeLegacyVideoScreenshotCacheKeys(area, [ref.key], options));
     return null;
   }
 }

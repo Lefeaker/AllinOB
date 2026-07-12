@@ -4,11 +4,13 @@ import { describe, expect, it } from 'vitest';
 import type { StorageAreaService } from '@platform/interfaces/storage';
 import { createSessionDraftStoragePolicy } from '@content/sessionDrafts';
 import { createVideoScreenshotCacheRepository } from '@content/video/videoScreenshotCacheRepository';
+import { removeLegacyVideoScreenshotCacheKeys } from '@content/video/videoScreenshotCacheLegacyRepository';
 import {
   normalizeVideoScreenshotCacheBlobEntry,
   pruneVideoScreenshotCacheBlobMetadataEntries,
   sortVideoScreenshotCacheBlobMetadataNewestFirst,
   type VideoScreenshotCacheBlobEntry,
+  type VideoScreenshotCacheBlobReadResult,
   type VideoScreenshotCacheBlobStore
 } from '@content/video/videoScreenshotCacheStore';
 import {
@@ -104,9 +106,11 @@ class MemoryBlobStore implements VideoScreenshotCacheBlobStore {
     return Promise.resolve();
   }
 
-  get(key: string): Promise<VideoScreenshotCacheBlobEntry | null> {
+  get(key: string): ReturnType<VideoScreenshotCacheBlobStore['get']> {
     const entry = this.values.get(key);
-    return Promise.resolve(entry ? cloneBlobEntry(entry) : null);
+    return Promise.resolve(
+      entry ? { status: 'found', entry: cloneBlobEntry(entry) } : { status: 'missing' }
+    );
   }
 
   delete(key: string): Promise<void> {
@@ -127,29 +131,41 @@ class MemoryBlobStore implements VideoScreenshotCacheBlobStore {
     return Promise.resolve(count);
   }
 
-  async listByPageKey(pageKey: string): Promise<VideoScreenshotCacheBlobEntry[]> {
+  async listByPageKey(pageKey: string): ReturnType<VideoScreenshotCacheBlobStore['listByPageKey']> {
     if (this.delayPageReads) {
       await this.waitForPageReadTurn();
     }
-    return this.sortedEntries().filter((entry) => entry.pageKey === pageKey);
+    return {
+      entries: this.sortedEntries().filter((entry) => entry.pageKey === pageKey),
+      invalidKeys: []
+    };
   }
 
-  listAllMetadata(): Promise<ReturnType<typeof toMetadata>[]> {
-    return Promise.resolve(this.sortedEntries().map(toMetadata));
+  listAllMetadata(): ReturnType<VideoScreenshotCacheBlobStore['listAllMetadata']> {
+    return Promise.resolve({ entries: this.sortedEntries().map(toMetadata), invalidKeys: [] });
   }
 
   async prune(options: Parameters<VideoScreenshotCacheBlobStore['prune']>[0]) {
     const result = pruneVideoScreenshotCacheBlobMetadataEntries(
-      await this.listAllMetadata(),
+      (await this.listAllMetadata()).entries,
       options
     );
-    await this.deleteMany(result.removedKeys);
-    return result;
+    return {
+      entries: result.entries,
+      candidateKeys: result.removedKeys,
+      invalidKeys: [],
+      dirty: result.dirty
+    };
   }
 
-  peek(key: string): VideoScreenshotCacheBlobEntry | null {
+  peek(key: string): VideoScreenshotCacheBlobReadResult {
     const entry = this.values.get(key);
-    return entry ? cloneBlobEntry(entry) : null;
+    return entry ? { status: 'found', entry: cloneBlobEntry(entry) } : { status: 'missing' };
+  }
+
+  peekEntry(key: string): VideoScreenshotCacheBlobEntry | null {
+    const result = this.peek(key);
+    return result.status === 'found' ? result.entry : null;
   }
 
   snapshotKeys(): string[] {
@@ -210,7 +226,12 @@ function createStructuredRepository(
   return createVideoScreenshotCacheRepository(
     {
       blobStore,
-      legacyArea
+      legacyArea,
+      async deleteCandidates(keys) {
+        await blobStore.deleteMany(keys);
+        await removeLegacyVideoScreenshotCacheKeys(legacyArea, keys);
+        return { deletedKeys: [...new Set(keys)].sort() };
+      }
     },
     options
   );
@@ -334,7 +355,7 @@ describe('videoScreenshotCacheRepository', () => {
       refValues.some((value) => value instanceof ArrayBuffer || ArrayBuffer.isView(value))
     ).toBe(false);
 
-    const storedEntry = blobStore.peek(ref.key);
+    const storedEntry = blobStore.peekEntry(ref.key);
     expect(storedEntry).toMatchObject({
       key: ref.key,
       pageKey: 'page-a',
@@ -367,7 +388,7 @@ describe('videoScreenshotCacheRepository', () => {
       })
     );
 
-    expect(blobStore.peek(ref.key)).not.toBeNull();
+    expect(blobStore.peekEntry(ref.key)).not.toBeNull();
     expect(await legacyArea.get(ref.key)).toBeUndefined();
     expect(await legacyArea.get(VIDEO_SCREENSHOT_CACHE_INDEX_KEY)).toBeUndefined();
     expect(legacyArea.snapshotKeys()).toEqual([]);
@@ -432,6 +453,15 @@ describe('videoScreenshotCacheRepository', () => {
     expect(secondRef.expiresAt).toBe(BASE_TIME + 78);
     expect(blobStore.snapshotMetadataIds()).toEqual(['shot-b']);
     await expect(repository.load(firstRef)).resolves.toBeNull();
+    await expect(
+      blobStore.prune({
+        now: nowMs,
+        maxGlobalEntries: 2,
+        maxPageEntries: 1,
+        maxContentBytes: 8,
+        applyLimits: true
+      })
+    ).resolves.toMatchObject({ candidateKeys: [], invalidKeys: [] });
 
     await expect(
       repository.save({
@@ -466,13 +496,15 @@ describe('videoScreenshotCacheRepository', () => {
     );
 
     expect(ref.byteLength).toBe(VIDEO_SCREENSHOT_CACHE_MAX_CONTENT_BYTES + 1);
-    expect(blobStore.peek(ref.key)?.blob.size).toBe(VIDEO_SCREENSHOT_CACHE_MAX_CONTENT_BYTES + 1);
+    expect(blobStore.peekEntry(ref.key)?.blob.size).toBe(
+      VIDEO_SCREENSHOT_CACHE_MAX_CONTENT_BYTES + 1
+    );
     const loaded = await repository.load(ref);
     expect(loaded?.content?.byteLength).toBe(VIDEO_SCREENSHOT_CACHE_MAX_CONTENT_BYTES + 1);
     expect(loaded?.content?.blob.size).toBe(VIDEO_SCREENSHOT_CACHE_MAX_CONTENT_BYTES + 1);
 
     await repository.remove(ref);
-    expect(blobStore.peek(ref.key)).toBeNull();
+    expect(blobStore.peekEntry(ref.key)).toBeNull();
   });
 
   it('structured save returns a typed serialize-failed skip for invalid screenshot metadata', async () => {
@@ -652,7 +684,7 @@ describe('videoScreenshotCacheRepository', () => {
 
     const loaded = await repository.load(legacyRef);
     await expectLoadedText(loaded, 'frame-legacy');
-    expect(blobStore.peek(legacyRef.key)).toMatchObject({
+    expect(blobStore.peekEntry(legacyRef.key)).toMatchObject({
       key: legacyRef.key,
       pageKey: 'page-a',
       captureId: 'capture-a',
@@ -663,6 +695,58 @@ describe('videoScreenshotCacheRepository', () => {
 
     const loadedAgain = await repository.load(legacyRef);
     await expectLoadedText(loadedAgain, 'frame-legacy');
+  });
+
+  it('retains the legacy copy when the migrated IndexedDB entry cannot be read back', async () => {
+    const legacyArea = new MemoryStorageArea();
+    const legacyRepository = createVideoScreenshotCacheRepository(legacyArea, {
+      now: () => BASE_TIME
+    });
+    const legacyRef = requireSaved(
+      await legacyRepository.save({
+        pageKey: 'page-a',
+        captureId: 'capture-readback',
+        screenshot: createScreenshot('shot-readback', 'frame-readback')
+      })
+    );
+    class MissingReadBackStore extends MemoryBlobStore {
+      override get(): ReturnType<VideoScreenshotCacheBlobStore['get']> {
+        return Promise.resolve({ status: 'missing' });
+      }
+    }
+    const blobStore = new MissingReadBackStore();
+    const repository = createStructuredRepository(blobStore, legacyArea, {
+      now: () => BASE_TIME
+    });
+
+    await expectLoadedText(await repository.load(legacyRef), 'frame-readback');
+    expect(blobStore.peekEntry(legacyRef.key)).not.toBeNull();
+    expect(await legacyArea.get(legacyRef.key)).not.toBeUndefined();
+  });
+
+  it('retains the legacy copy when the migrated IndexedDB put fails', async () => {
+    const legacyArea = new MemoryStorageArea();
+    const legacyRepository = createVideoScreenshotCacheRepository(legacyArea, {
+      now: () => BASE_TIME
+    });
+    const legacyRef = requireSaved(
+      await legacyRepository.save({
+        pageKey: 'page-a',
+        captureId: 'capture-put-failure',
+        screenshot: createScreenshot('shot-put-failure', 'frame-put-failure')
+      })
+    );
+    class FailingMigrationStore extends MemoryBlobStore {
+      override put(): Promise<void> {
+        return Promise.reject(new Error('simulated migration put failure'));
+      }
+    }
+    const repository = createStructuredRepository(new FailingMigrationStore(), legacyArea, {
+      now: () => BASE_TIME
+    });
+
+    await expectLoadedText(await repository.load(legacyRef), 'frame-put-failure');
+    expect(await legacyArea.get(legacyRef.key)).not.toBeUndefined();
   });
 
   it('returns null and removes invalid, corrupt, or expired legacy entries', async () => {
@@ -805,7 +889,7 @@ describe('videoScreenshotCacheRepository', () => {
     await expectLoadedText(await repository.load(secondRef), 'frame-b');
   });
 
-  it('prunes the oldest blob-store entries per page when a lower per-page limit is applied', async () => {
+  it('routes the oldest per-page blob candidate through deletion authority', async () => {
     const blobStore = new MemoryBlobStore();
     let nowMs = BASE_TIME;
     const writer = createStructuredRepository(blobStore, undefined, {
@@ -834,9 +918,20 @@ describe('videoScreenshotCacheRepository', () => {
 
     await limiter.pruneToLimits();
     expect(blobStore.snapshotMetadataIds()).toEqual(['shot-3', 'shot-2']);
+    await expect(
+      blobStore.prune({
+        now: nowMs,
+        maxPageEntries: 2,
+        maxGlobalEntries: 10,
+        applyLimits: true
+      })
+    ).resolves.toMatchObject({
+      candidateKeys: [],
+      invalidKeys: []
+    });
   });
 
-  it('prunes the oldest blob-store entries globally when a lower global limit is applied', async () => {
+  it('routes the oldest global blob candidate through deletion authority', async () => {
     const blobStore = new MemoryBlobStore();
     let nowMs = BASE_TIME;
     const writer = createStructuredRepository(blobStore, undefined, {
@@ -871,6 +966,17 @@ describe('videoScreenshotCacheRepository', () => {
 
     await limiter.pruneToLimits();
     expect(blobStore.snapshotMetadataIds()).toEqual(['shot-4', 'shot-3', 'shot-2']);
+    await expect(
+      blobStore.prune({
+        now: nowMs,
+        maxPageEntries: 10,
+        maxGlobalEntries: 3,
+        applyLimits: true
+      })
+    ).resolves.toMatchObject({
+      candidateKeys: [],
+      invalidKeys: []
+    });
   });
 
   it('removeMany deletes both blob-store and legacy storage keys', async () => {

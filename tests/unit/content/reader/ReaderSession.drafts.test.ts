@@ -3,9 +3,15 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import '../../../setup/globalSetup';
 import { buildReaderSessionDraftEnvelope } from '@content/reader/sessionDrafts';
+import { ReaderSessionDraftController } from '@content/reader/readerSessionDraftController';
 import { __resetContentSessionRegistryForTests } from '@content/runtime/contentSessionRegistry';
-import { createSessionDraftStorageKey, type SessionDraftEnvelope } from '@content/sessionDrafts';
+import {
+  createSessionDraftStorageKey,
+  type SessionDraftEnvelope,
+  type SessionDraftRepository
+} from '@content/sessionDrafts';
 import type { SessionCommentDraftSnapshot } from '@content/shared/panels/sessionCommentDrafts';
+import { createMemoryStorageArea } from '@platform/preview/memoryStorage';
 import {
   createPersistedHighlightRecord,
   createSelectionPayload,
@@ -343,16 +349,72 @@ describe('ReaderSession drafts', () => {
     await settleReaderMutation(
       getSessionHarness(context.session).handleSelection(createSelectionPayload(content.firstChild))
     );
+    const saveDraft = vi.spyOn(context.sessionDraftRepository, 'save');
 
     window.dispatchEvent(new PageTransitionEvent('pagehide', { persisted: false }));
-    await Promise.resolve();
-    await Promise.resolve();
-
-    await expect(
-      context.draftRepository.loadLatest('reader', 'https://example.com/article')
-    ).resolves.toMatchObject({
-      status: 'restorable'
+    expect(saveDraft).toHaveBeenCalledWith(expect.objectContaining({ status: 'restorable' }));
+    await vi.waitFor(async () => {
+      await expect(
+        context.draftRepository.loadLatest('reader', 'https://example.com/article')
+      ).resolves.toMatchObject({
+        status: 'restorable'
+      });
     });
+  });
+
+  it('queues restorable pagehide state synchronously behind an in-flight active save', async () => {
+    vi.useFakeTimers();
+    const storageArea = createMemoryStorageArea();
+    const saves: SessionDraftEnvelope[] = [];
+    let durable: SessionDraftEnvelope | null = null;
+    let releaseActive!: () => void;
+    const activeGate = new Promise<void>((resolve) => {
+      releaseActive = resolve;
+    });
+    let writeTail = Promise.resolve();
+    const repository: SessionDraftRepository = {
+      save(envelope) {
+        saves.push(envelope);
+        const write = writeTail.then(async () => {
+          if (envelope.status === 'active') await activeGate;
+          durable = envelope;
+        });
+        writeTail = write;
+        return write;
+      },
+      async loadLatest() {
+        await writeTail;
+        return durable;
+      },
+      remove: () => Promise.resolve(),
+      listCandidates: () => Promise.resolve(durable ? [durable] : []),
+      pruneExpired: () => Promise.resolve()
+    };
+    const controller = new ReaderSessionDraftController({
+      doc: document,
+      pageUrl: 'https://example.com/article',
+      storageArea,
+      repository,
+      getPageTitle: () => 'Article',
+      getHighlights: () => [createPersistedHighlightRecord()],
+      getCommentDrafts: () => ({}),
+      getDestinationMetadata: () => undefined,
+      onPersistenceFailure: () => undefined
+    });
+    controller.bindLifecycleListeners();
+    const activeSave = controller.persistMutation();
+    await vi.advanceTimersByTimeAsync(150);
+    expect(saves.map(({ status }) => status)).toEqual(['active']);
+
+    window.dispatchEvent(new PageTransitionEvent('pagehide', { persisted: false }));
+
+    expect(saves.map(({ status }) => status)).toEqual(['active', 'restorable']);
+    releaseActive();
+    await activeSave;
+    await expect(
+      repository.loadLatest('reader', 'https://example.com/article')
+    ).resolves.toMatchObject({ status: 'restorable' });
+    await controller.dispose();
   });
 
   it('does not create a durable reader draft when the session stays empty', async () => {

@@ -1,36 +1,29 @@
-import {
-  isLegacyDataUrlForMimeType,
-  isSerializedClipAttachmentBinaryContent,
-  type SerializedClipAttachmentBinaryContent
-} from '../../shared/attachments/clipAttachmentBinary';
-import { isObjectRecord, type RuntimePropertyValue } from '../../shared/guards/object';
+import { readExactOwnDataRecord, readOwnDataRecord } from '../../shared/guards/exactOwnDataRecord';
+import type { ObjectRecord, RuntimePropertyValue } from '../../shared/guards/object';
 import type { VideoScreenshotCacheSaveResult } from './videoScreenshotCacheRepository';
 import {
-  normalizeVideoScreenshotCacheMaxContentBytes,
   type VideoScreenshotCacheContentValidationOptions,
   type VideoScreenshotCacheRef
 } from './videoScreenshotCacheTypes';
-import type { VideoCaptureScreenshot } from './types';
 import {
-  isRestoreStorageMaintenanceOperation,
+  normalizeSessionDraftOperationContext,
+  type SessionDraftOperationContext
+} from '../sessionDrafts/sessionDraftRepositoryMessages';
+import {
+  isRestoreStorageMaintenanceMessage,
   type RestoreStorageMaintenanceMessage,
   type RestoreStorageMaintenanceResponse
 } from '../sessionDrafts/restoreStorageMaintenanceMessages';
+import {
+  normalizeNonEmptyString,
+  normalizeSerializedScreenshot,
+  normalizeVideoScreenshotCacheRefMessage,
+  type SerializedVideoScreenshotCacheScreenshot
+} from './videoScreenshotCacheMessageCodecs';
 
 export const VIDEO_SCREENSHOT_CACHE_MESSAGE = 'AIIOB_VIDEO_SCREENSHOT_CACHE';
-const VIDEO_SCREENSHOT_CACHE_SCHEMA_VERSION = 1;
-const VIDEO_SCREENSHOT_CACHE_KEY_PREFIX = 'aiob.videoScreenshotCache';
-const VIDEO_SCREENSHOT_CACHE_KEY_VERSION_PREFIX = `${VIDEO_SCREENSHOT_CACHE_KEY_PREFIX}.v${VIDEO_SCREENSHOT_CACHE_SCHEMA_VERSION}.`;
-const PAGE_KEY_PATTERN = /^[A-Za-z0-9_-]+$/u;
 
-export interface SerializedVideoScreenshotCacheScreenshot {
-  id: string;
-  fileName: string;
-  mimeType: VideoCaptureScreenshot['mimeType'];
-  capturedAt: number;
-  content?: SerializedClipAttachmentBinaryContent;
-  dataUrl?: string;
-}
+export type { SerializedVideoScreenshotCacheScreenshot } from './videoScreenshotCacheMessageCodecs';
 export type VideoScreenshotCacheMessage =
   | {
       type: typeof VIDEO_SCREENSHOT_CACHE_MESSAGE;
@@ -38,6 +31,7 @@ export type VideoScreenshotCacheMessage =
       input: {
         pageKey: string;
         captureId: string;
+        operationContext?: SessionDraftOperationContext;
         screenshot: SerializedVideoScreenshotCacheScreenshot;
       };
     }
@@ -85,164 +79,159 @@ export type VideoScreenshotCacheResponse =
       success: false;
       error: string;
     };
-function normalizeNonEmptyString(value: RuntimePropertyValue): string | null {
-  return typeof value === 'string' && value.length > 0 ? value : null;
-}
-function normalizeTimestamp(value: RuntimePropertyValue): number | null {
-  return typeof value === 'number' &&
-    Number.isInteger(value) &&
-    Number.isFinite(value) &&
-    value >= 0
-    ? value
-    : null;
-}
-function normalizeByteLength(
-  value: RuntimePropertyValue,
-  options: VideoScreenshotCacheContentValidationOptions
-): number | null {
-  const maxContentBytes = normalizeVideoScreenshotCacheMaxContentBytes(options.maxContentBytes);
-  return typeof value === 'number' &&
-    Number.isInteger(value) &&
-    value > 0 &&
-    value <= maxContentBytes
-    ? value
-    : null;
-}
-function normalizePageKey(value: RuntimePropertyValue): string | null {
-  const normalized = normalizeNonEmptyString(value);
-  return normalized !== null && PAGE_KEY_PATTERN.test(normalized) ? normalized : null;
-}
-function createExpectedVideoScreenshotCacheStorageKey(options: {
-  pageKey: string;
-  captureId: string;
-  screenshotId: string;
-}): string {
-  return `${VIDEO_SCREENSHOT_CACHE_KEY_VERSION_PREFIX}${encodeURIComponent(
-    options.pageKey
-  )}.${encodeURIComponent(options.captureId)}.${encodeURIComponent(options.screenshotId)}`;
-}
-function isVideoScreenshotCacheRefMessage(
-  value: RuntimePropertyValue,
-  options: VideoScreenshotCacheContentValidationOptions
-): value is VideoScreenshotCacheRef {
-  if (!isObjectRecord(value) || value.schemaVersion !== VIDEO_SCREENSHOT_CACHE_SCHEMA_VERSION) {
-    return false;
-  }
-
-  const pageKey = normalizePageKey(value.pageKey);
-  const captureId = normalizeNonEmptyString(value.captureId);
-  const id = normalizeNonEmptyString(value.id);
-  const key = normalizeNonEmptyString(value.key);
-  const fileName = normalizeNonEmptyString(value.fileName);
-  const mimeType = value.mimeType === 'image/jpeg' ? value.mimeType : null;
-  const byteLength = normalizeByteLength(value.byteLength, options);
-  const capturedAt = normalizeTimestamp(value.capturedAt);
-  const expiresAt = normalizeTimestamp(value.expiresAt);
-
-  if (
-    pageKey === null ||
-    captureId === null ||
-    id === null ||
-    key === null ||
-    fileName === null ||
-    mimeType === null ||
-    byteLength === null ||
-    capturedAt === null ||
-    expiresAt === null ||
-    expiresAt <= capturedAt
-  ) {
-    return false;
-  }
-
-  return (
-    key ===
-    createExpectedVideoScreenshotCacheStorageKey({
-      pageKey,
-      captureId,
-      screenshotId: id
-    })
-  );
-}
-function normalizeSerializedScreenshot(
-  value: RuntimePropertyValue,
-  options: VideoScreenshotCacheContentValidationOptions
-): SerializedVideoScreenshotCacheScreenshot | null {
-  if (!isObjectRecord(value)) {
-    return null;
-  }
-  const id = normalizeNonEmptyString(value.id);
-  const fileName = normalizeNonEmptyString(value.fileName);
-  const mimeType = value.mimeType === 'image/jpeg' ? value.mimeType : null;
-  const capturedAt = normalizeTimestamp(value.capturedAt);
-  const content =
-    isSerializedClipAttachmentBinaryContent(value.content) &&
-    normalizeByteLength(value.content.byteLength, options) !== null
-      ? value.content
-      : null;
-  const dataUrl =
-    mimeType && isLegacyDataUrlForMimeType(value.dataUrl, mimeType) ? value.dataUrl : null;
-
-  if (
-    id === null ||
-    fileName === null ||
-    mimeType === null ||
-    capturedAt === null ||
-    (content === null && dataUrl === null)
-  ) {
-    return null;
-  }
-
-  return {
-    id,
-    fileName,
-    mimeType,
-    capturedAt,
-    ...(content ? { content } : {}),
-    ...(dataUrl ? { dataUrl } : {})
-  };
-}
-
 export function isVideoScreenshotCacheMessage<T>(
   value: T,
   options: VideoScreenshotCacheContentValidationOptions = {}
 ): value is T & VideoScreenshotCacheMessage {
-  if (!isObjectRecord(value) || value.type !== VIDEO_SCREENSHOT_CACHE_MESSAGE) {
-    return false;
-  }
-
-  if (value.operation === 'save') {
-    if (!isObjectRecord(value.input)) {
-      return false;
-    }
-    return (
-      normalizeNonEmptyString(value.input.pageKey) !== null &&
-      normalizeNonEmptyString(value.input.captureId) !== null &&
-      normalizeSerializedScreenshot(value.input.screenshot, options) !== null
-    );
-  }
-
-  if (value.operation === 'load' || value.operation === 'remove') {
-    return isVideoScreenshotCacheRefMessage(value.ref, options);
-  }
-
-  if (value.operation === 'removeMany') {
-    const refs = value.refs;
-    return (
-      Array.isArray(refs) &&
-      refs.every((ref: RuntimePropertyValue) => isVideoScreenshotCacheRefMessage(ref, options))
-    );
-  }
-
-  return (
-    value.operation === 'pruneExpired' ||
-    value.operation === 'pruneToLimits' ||
-    isRestoreStorageMaintenanceOperation(value.operation)
-  );
+  return normalizeVideoScreenshotCacheMessage(value, options) !== null;
 }
 
 export function normalizeVideoScreenshotCacheMessage<T>(
   value: T,
   options: VideoScreenshotCacheContentValidationOptions = {}
 ): VideoScreenshotCacheMessage | null {
-  return isVideoScreenshotCacheMessage(value, options) ? value : null;
+  const record = readOwnDataRecord(value);
+  if (!record || record.type !== VIDEO_SCREENSHOT_CACHE_MESSAGE) return null;
+
+  if (record.operation === 'save') {
+    const message = readExactOwnDataRecord(record, ['type', 'operation', 'input']);
+    const input = readAllowedOwnDataRecord(message?.input, [
+      'pageKey',
+      'captureId',
+      'operationContext',
+      'screenshot'
+    ]);
+    if (!message || !input) return null;
+    const pageKey = normalizeNonEmptyString(input.pageKey);
+    const captureId = normalizeNonEmptyString(input.captureId);
+    const screenshot = normalizeSerializedScreenshot(input.screenshot, options);
+    const operationContext =
+      input.operationContext === undefined
+        ? undefined
+        : normalizeStableSessionDraftOperationContext(input.operationContext);
+    return pageKey &&
+      captureId &&
+      screenshot &&
+      (input.operationContext === undefined || operationContext)
+      ? {
+          type: VIDEO_SCREENSHOT_CACHE_MESSAGE,
+          operation: 'save',
+          input: {
+            pageKey,
+            captureId,
+            ...(operationContext ? { operationContext } : {}),
+            screenshot
+          }
+        }
+      : null;
+  }
+
+  if (record.operation === 'load' || record.operation === 'remove') {
+    const message = readExactOwnDataRecord(record, ['type', 'operation', 'ref']);
+    const ref = message ? normalizeVideoScreenshotCacheRefMessage(message.ref, options) : null;
+    return message && ref
+      ? {
+          type: VIDEO_SCREENSHOT_CACHE_MESSAGE,
+          operation: record.operation,
+          ref
+        }
+      : null;
+  }
+
+  if (record.operation === 'removeMany') {
+    const message = readExactOwnDataRecord(record, ['type', 'operation', 'refs']);
+    const rawRefs = message ? readOwnDataArray(message.refs) : null;
+    if (!rawRefs) return null;
+    const refs = rawRefs.map((ref) => normalizeVideoScreenshotCacheRefMessage(ref, options));
+    return refs.every((ref): ref is VideoScreenshotCacheRef => ref !== null)
+      ? { type: VIDEO_SCREENSHOT_CACHE_MESSAGE, operation: 'removeMany', refs }
+      : null;
+  }
+
+  if (record.operation === 'pruneExpired' || record.operation === 'pruneToLimits') {
+    const message = readExactOwnDataRecord(record, ['type', 'operation']);
+    return message ? { type: VIDEO_SCREENSHOT_CACHE_MESSAGE, operation: record.operation } : null;
+  }
+
+  if (!isRestoreStorageMaintenanceMessage(record)) return null;
+  if (record.operation === 'clearAllRestoreData') {
+    return {
+      type: VIDEO_SCREENSHOT_CACHE_MESSAGE,
+      operation: 'clearAllRestoreData',
+      operationId: record.operationId
+    };
+  }
+  return {
+    type: VIDEO_SCREENSHOT_CACHE_MESSAGE,
+    operation: record.operation
+  };
+}
+
+function normalizeStableSessionDraftOperationContext(
+  value: RuntimePropertyValue
+): SessionDraftOperationContext | null {
+  const context = readExactOwnDataRecord(value, [
+    'operationId',
+    'epoch',
+    'draftKey',
+    'baseRevision',
+    'nextRevision'
+  ]);
+  return context ? normalizeSessionDraftOperationContext(context) : null;
+}
+
+function readAllowedOwnDataRecord(
+  value: RuntimePropertyValue,
+  allowedKeys: readonly string[]
+): ObjectRecord | null {
+  const record = readOwnDataRecord(value);
+  if (!record) return null;
+  const allowed = new Set(allowedKeys);
+  return Object.keys(record).every((key) => allowed.has(key)) ? record : null;
+}
+
+function readOwnDataArray(value: RuntimePropertyValue): RuntimePropertyValue[] | null {
+  if (!Array.isArray(value) || Reflect.getPrototypeOf(value) !== Array.prototype) return null;
+  const lengthDescriptor = Reflect.getOwnPropertyDescriptor(value, 'length');
+  if (
+    !isRuntimeDataDescriptor(lengthDescriptor) ||
+    typeof lengthDescriptor.value !== 'number' ||
+    !Number.isSafeInteger(lengthDescriptor.value) ||
+    lengthDescriptor.value < 0
+  ) {
+    return null;
+  }
+  const length = lengthDescriptor.value;
+  const expectedKeys = new Set(['length', ...Array.from({ length }, (_, index) => String(index))]);
+  const ownKeys = Reflect.ownKeys(value);
+  if (
+    ownKeys.length !== expectedKeys.size ||
+    ownKeys.some((key) => typeof key !== 'string' || !expectedKeys.has(key))
+  ) {
+    return null;
+  }
+  const snapshot: RuntimePropertyValue[] = [];
+  for (let index = 0; index < length; index += 1) {
+    const descriptor = Reflect.getOwnPropertyDescriptor(value, String(index));
+    if (!isRuntimeDataDescriptor(descriptor) || !descriptor.enumerable) {
+      return null;
+    }
+    snapshot.push(descriptor.value);
+  }
+  return snapshot;
+}
+
+type RuntimeDataDescriptor = Omit<PropertyDescriptor, 'value'> & {
+  value: RuntimePropertyValue;
+};
+
+function isRuntimeDataDescriptor(
+  descriptor: PropertyDescriptor | undefined
+): descriptor is RuntimeDataDescriptor {
+  return (
+    descriptor !== undefined &&
+    'value' in descriptor &&
+    descriptor.get === undefined &&
+    descriptor.set === undefined
+  );
 }

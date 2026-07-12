@@ -35,6 +35,7 @@ import type { IOptionsRepository } from '../../src/shared/repositories/IOptionsR
 import { createMemoryStorageService } from '../../src/platform/preview/memoryStorage';
 import type { PlatformServices } from '../../src/platform/types';
 import type { SessionCommentDraftSnapshot } from '../../src/content/shared/panels/sessionCommentDrafts';
+import { createDirectSessionDraftRepository as createSessionDraftRepository } from '../../src/content/sessionDrafts/sessionDraftRepository';
 
 type I18nContextModule = typeof import('../../src/content/i18n/context');
 type StyleSheetManagerModule = typeof import('../../src/content/clipper/shared/styleSheetManager');
@@ -409,13 +410,16 @@ function createReaderSessionHarness(overrides?: Partial<ReaderSessionDependencie
     applyTokens: vi.fn()
   };
 
+  const storage = overrides?.storage ?? createMemoryStorageService();
   const dependencies: ReaderSessionDependencies = {
     ...overrides,
     viewFactory:
       overrides?.viewFactory ??
       ({ createView: vi.fn() } as ReaderSessionDependencies['viewFactory']),
     optionsRepository: overrides?.optionsRepository ?? ({} as IOptionsRepository),
-    storage: overrides?.storage ?? createMemoryStorageService(),
+    storage,
+    sessionDraftRepository:
+      overrides?.sessionDraftRepository ?? createSessionDraftRepository(storage.local),
     messaging:
       overrides?.messaging ?? ({ send: vi.fn() } as ReaderSessionDependencies['messaging']),
     readerRepository: overrides?.readerRepository ?? readerRepositoryMocks,

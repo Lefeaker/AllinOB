@@ -292,8 +292,11 @@ describe('ReaderSession export', () => {
         }
       }
     });
-    configureSessionDraftRuntimeMessenger(async <TResult = unknown>() => {
-      return { success: true, active: true, ...currentOwner } as TResult;
+    configureSessionDraftRuntimeMessenger(async <TResult = unknown>(message: unknown) => {
+      if ((message === null || typeof message === 'object') && isTabContextProbeMessage(message)) {
+        return { success: true, active: true } as TResult;
+      }
+      return { success: true, ...currentOwner } as TResult;
     });
 
     const context = createSessionContext();

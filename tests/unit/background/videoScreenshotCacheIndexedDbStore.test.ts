@@ -65,6 +65,14 @@ class FakeIndexedDbFactory {
     this.state.records.set(key, value);
   }
 
+  seedRaw(key: IDBValidKey, value: RawRecord): void {
+    this.state.records.set(key, value);
+  }
+
+  rawCount(): number {
+    return this.state.records.size;
+  }
+
   getRaw(key: string): RawRecord | undefined {
     return this.state.records.get(key);
   }
@@ -89,7 +97,7 @@ class FakeDatabaseState {
   objectStoreName = '';
   keyPath = '';
   readonly indexes = new Map<string, string | string[]>();
-  readonly records = new Map<string, RawRecord>();
+  readonly records = new Map<IDBValidKey, RawRecord>();
 
   initialize(name: string, version: number): void {
     this.initialized = true;
@@ -194,17 +202,30 @@ class FakeObjectStore {
     return createRequest(undefined, this.transaction);
   }
 
-  get(key: string): FakeRequest<RawRecord | undefined> {
+  get(key: IDBValidKey): FakeRequest<RawRecord | undefined> {
     return createRequest(this.state.records.get(key), this.transaction);
   }
 
-  delete(key: string): FakeRequest<undefined> {
+  delete(key: IDBValidKey): FakeRequest<undefined> {
     this.state.records.delete(key);
     return createRequest(undefined, this.transaction);
   }
 
   getAll(): FakeRequest<RawRecord[]> {
     return createRequest(Array.from(this.state.records.values()), this.transaction);
+  }
+
+  getAllKeys(): FakeRequest<IDBValidKey[]> {
+    return createRequest(Array.from(this.state.records.keys()), this.transaction);
+  }
+
+  count(): FakeRequest<number> {
+    return createRequest(this.state.records.size, this.transaction);
+  }
+
+  clear(): FakeRequest<undefined> {
+    this.state.records.clear();
+    return createRequest(undefined, this.transaction);
   }
 }
 
@@ -364,19 +385,22 @@ describe('videoScreenshotCacheIndexedDbStore', () => {
     });
 
     const loaded = await store.get(newer.key);
-    expect(loaded?.key).toBe(newer.key);
-    await expect(loaded?.blob.text()).resolves.toBe('newer');
+    expect(loaded).toMatchObject({ status: 'found', entry: { key: newer.key } });
+    await expect(loaded.status === 'found' ? loaded.entry.blob.text() : null).resolves.toBe(
+      'newer'
+    );
 
     const pageEntries = await store.listByPageKey('page-a');
-    expect(pageEntries.map((entry) => entry.key)).toEqual([newer.key, older.key]);
+    expect(pageEntries.entries.map((entry) => entry.key)).toEqual([newer.key, older.key]);
+    expect(pageEntries.invalidKeys).toEqual([]);
 
     await store.delete(older.key);
     await store.deleteMany([otherPage.key, otherPage.key]);
 
-    expect((await store.listAllMetadata()).map((entry) => entry.key)).toEqual([newer.key]);
+    expect((await store.listAllMetadata()).entries.map((entry) => entry.key)).toEqual([newer.key]);
   });
 
-  it('touches last access time on load and deletes all entries with idempotent count semantics', async () => {
+  it('touches valid reads and deletes all entries with idempotent count semantics', async () => {
     const indexedDb = new FakeIndexedDbFactory();
     let now = BASE_TIME + 500;
     const store = createVideoScreenshotCacheIndexedDbStore({ indexedDb, now: () => now });
@@ -384,13 +408,23 @@ describe('videoScreenshotCacheIndexedDbStore', () => {
     const second = createEntry({ captureId: 'capture-second', id: 'shot-second' }, 'second');
     await store.put(first);
     await store.put(second);
+    indexedDb.seedRaw(7, { key: 7, malformed: true });
+    indexedDb.seedRaw('empty-key-row', { key: '', malformed: true });
+    indexedDb.seedRaw('missing-key-row', { malformed: true });
 
-    expect((await store.get(first.key))?.lastAccessedAt).toBe(now);
+    expect(await store.get(first.key)).toMatchObject({
+      status: 'found',
+      entry: { key: first.key, lastAccessedAt: now }
+    });
     now += 100;
-    expect((await store.get(first.key))?.lastAccessedAt).toBe(now);
-    await expect(store.deleteAll()).resolves.toBe(2);
+    expect(await store.get(first.key)).toMatchObject({
+      status: 'found',
+      entry: { key: first.key, lastAccessedAt: now }
+    });
+    await expect(store.deleteAll()).resolves.toBe(5);
+    expect(indexedDb.rawCount()).toBe(0);
     await expect(store.deleteAll()).resolves.toBe(0);
-    await expect(store.listAllMetadata()).resolves.toEqual([]);
+    await expect(store.listAllMetadata()).resolves.toEqual({ entries: [], invalidKeys: [] });
   });
 
   it('fails closed when deleting all without IndexedDB availability', async () => {
@@ -411,7 +445,7 @@ describe('videoScreenshotCacheIndexedDbStore', () => {
     }
   });
 
-  it('prunes expired and over-limit entries while removing deleted keys from IndexedDB', async () => {
+  it('selects expired and over-limit candidates without deleting IndexedDB rows', async () => {
     const indexedDb = new FakeIndexedDbFactory();
     const store = createVideoScreenshotCacheIndexedDbStore({ indexedDb });
     const keepNewest = createEntry({
@@ -464,16 +498,13 @@ describe('videoScreenshotCacheIndexedDbStore', () => {
     });
 
     expect(result.entries.map((entry) => entry.key)).toEqual([keepNewest.key, keepGlobal.key]);
-    expect(new Set(result.removedKeys)).toEqual(new Set([expired.key, pageOverflow.key]));
-    expect(await store.get(expired.key)).toBeNull();
-    expect(await store.get(pageOverflow.key)).toBeNull();
-    expect((await store.listAllMetadata()).map((entry) => entry.key)).toEqual([
-      keepNewest.key,
-      keepGlobal.key
-    ]);
+    expect(new Set(result.candidateKeys)).toEqual(new Set([expired.key, pageOverflow.key]));
+    expect(result.invalidKeys).toEqual([]);
+    expect(indexedDb.getRaw(expired.key)).toBeDefined();
+    expect(indexedDb.getRaw(pageOverflow.key)).toBeDefined();
   });
 
-  it('treats corrupt rows as missing and deletes them on read', async () => {
+  it('returns typed invalid get and peek results with the exact primary key and preserves corrupt rows', async () => {
     const indexedDb = new FakeIndexedDbFactory();
     const corrupt = createEntry(
       {
@@ -489,8 +520,60 @@ describe('videoScreenshotCacheIndexedDbStore', () => {
     });
 
     const store = createVideoScreenshotCacheIndexedDbStore({ indexedDb });
-    expect(await store.get(corrupt.key)).toBeNull();
-    expect(indexedDb.getRaw(corrupt.key)).toBeUndefined();
+    await expect(store.get(corrupt.key)).resolves.toEqual({
+      status: 'invalid',
+      key: corrupt.key
+    });
+    await expect(store.peek?.(corrupt.key)).resolves.toEqual({
+      status: 'invalid',
+      key: corrupt.key
+    });
+    expect(indexedDb.getRaw(corrupt.key)).toBeDefined();
+  });
+
+  it('reports invalid page and all-list rows by primary key without deleting them', async () => {
+    const indexedDb = new FakeIndexedDbFactory();
+    indexedDb.seedRaw('non-object-row', 42 as unknown as RawRecord);
+    indexedDb.seedRaw('missing-key-row', { pageKey: 'page-a', malformed: true });
+    const store = createVideoScreenshotCacheIndexedDbStore({ indexedDb });
+
+    await expect(store.listByPageKey('page-a')).resolves.toEqual({
+      entries: [],
+      invalidKeys: ['missing-key-row', 'non-object-row']
+    });
+    await expect(store.listAllMetadata()).resolves.toEqual({
+      entries: [],
+      invalidKeys: ['missing-key-row', 'non-object-row']
+    });
+    expect(indexedDb.rawCount()).toBe(2);
+  });
+
+  it('reports prune candidates and invalid primary keys without deleting either class', async () => {
+    const indexedDb = new FakeIndexedDbFactory();
+    const expired = createEntry({
+      capturedAt: BASE_TIME - 100,
+      createdAt: BASE_TIME - 90,
+      updatedAt: BASE_TIME - 80,
+      expiresAt: BASE_TIME - 1
+    });
+    indexedDb.seed(expired as unknown as RawRecord);
+    indexedDb.seedRaw('missing-key-row', { malformed: true });
+    const store = createVideoScreenshotCacheIndexedDbStore({ indexedDb });
+
+    await expect(
+      store.prune({
+        now: BASE_TIME,
+        maxGlobalEntries: 10,
+        maxPageEntries: 10,
+        applyLimits: true
+      })
+    ).resolves.toEqual({
+      entries: [],
+      candidateKeys: [expired.key],
+      invalidKeys: ['missing-key-row'],
+      dirty: true
+    });
+    expect(indexedDb.rawCount()).toBe(2);
   });
 
   it('uses the injected content byte cap when normalizing IndexedDB blob rows', async () => {
@@ -510,12 +593,19 @@ describe('videoScreenshotCacheIndexedDbStore', () => {
     await store.put(entry);
 
     const loaded = await store.get(entry.key);
-    expect(loaded?.byteLength).toBe(VIDEO_SCREENSHOT_CACHE_MAX_CONTENT_BYTES + 1);
-    expect(loaded?.blob.size).toBe(VIDEO_SCREENSHOT_CACHE_MAX_CONTENT_BYTES + 1);
-    expect((await store.listByPageKey('page-a')).map((current) => current.key)).toEqual([
+    expect(loaded).toMatchObject({
+      status: 'found',
+      entry: { byteLength: VIDEO_SCREENSHOT_CACHE_MAX_CONTENT_BYTES + 1 }
+    });
+    expect(loaded.status === 'found' ? loaded.entry.blob.size : null).toBe(
+      VIDEO_SCREENSHOT_CACHE_MAX_CONTENT_BYTES + 1
+    );
+    expect((await store.listByPageKey('page-a')).entries.map((current) => current.key)).toEqual([
       entry.key
     ]);
-    expect((await store.listAllMetadata()).map((current) => current.key)).toEqual([entry.key]);
+    expect((await store.listAllMetadata()).entries.map((current) => current.key)).toEqual([
+      entry.key
+    ]);
 
     const pruneResult = await store.prune({
       now: BASE_TIME,
@@ -524,6 +614,7 @@ describe('videoScreenshotCacheIndexedDbStore', () => {
       applyLimits: true
     });
     expect(pruneResult.entries.map((current) => current.key)).toEqual([entry.key]);
-    expect(pruneResult.removedKeys).toEqual([]);
+    expect(pruneResult.candidateKeys).toEqual([]);
+    expect(pruneResult.invalidKeys).toEqual([]);
   });
 });

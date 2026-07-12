@@ -600,10 +600,13 @@ describe('runtime message listener', () => {
       success: true,
       operation: 'pruneExpired'
     });
-    expect(dependencies.handleVideoScreenshotCacheMessage).toHaveBeenCalledWith({
-      type: 'AIIOB_VIDEO_SCREENSHOT_CACHE',
-      operation: 'pruneExpired'
-    });
+    expect(dependencies.handleVideoScreenshotCacheMessage).toHaveBeenCalledWith(
+      {
+        type: 'AIIOB_VIDEO_SCREENSHOT_CACHE',
+        operation: 'pruneExpired'
+      },
+      {}
+    );
   });
 
   it('threads the full injected generic screenshot cache policy into the concrete cache owner', async () => {
@@ -618,8 +621,19 @@ describe('runtime message listener', () => {
             : undefined
         )
     );
+    type HandlerOptions = {
+      isOwnerContextActive(owner: {
+        tabId?: number;
+        windowId?: number;
+        frameId?: number;
+      }): boolean | Promise<boolean>;
+    };
+    let capturedHandlerOptions: HandlerOptions | undefined;
     const createBackgroundVideoScreenshotCacheHandler = vi.fn(
-      () => handleVideoScreenshotCacheMessage
+      (_storage: unknown, _policy: unknown, options?: HandlerOptions) => {
+        capturedHandlerOptions = options;
+        return handleVideoScreenshotCacheMessage;
+      }
     );
     vi.doMock('../../../src/background/services/videoScreenshotCacheService', () => ({
       createBackgroundVideoScreenshotCacheHandler
@@ -642,11 +656,12 @@ describe('runtime message listener', () => {
     try {
       const { createRuntimeMessageListenerDependencies, registerRuntimeMessageListener } =
         await import('../../../src/background/listeners/runtimeMessages');
+      const getTab = vi.fn().mockResolvedValue({ windowId: 4 });
       const dependencies = createRuntimeMessageListenerDependencies(
         { addListener: addListenerMock },
         asType<Pick<TabsService, 'create' | 'get' | 'sendMessage' | 'captureVisibleTab'>>({
           create: vi.fn(),
-          get: vi.fn(),
+          get: getTab,
           sendMessage: vi.fn(),
           captureVisibleTab: vi.fn()
         }),
@@ -657,8 +672,16 @@ describe('runtime message listener', () => {
 
       expect(createBackgroundVideoScreenshotCacheHandler).toHaveBeenCalledWith(
         storage,
-        storagePolicy.videoScreenshotCache
+        storagePolicy.videoScreenshotCache,
+        capturedHandlerOptions
       );
+      await expect(
+        capturedHandlerOptions?.isOwnerContextActive({ tabId: 12, windowId: 4, frameId: 0 })
+      ).resolves.toBe(true);
+      await expect(
+        capturedHandlerOptions?.isOwnerContextActive({ tabId: 12, windowId: 5, frameId: 0 })
+      ).resolves.toBe(false);
+      expect(getTab).toHaveBeenCalledWith(12);
       registerRuntimeMessageListener(dependencies);
       await expect(
         listener?.({ type: 'AIIOB_VIDEO_SCREENSHOT_CACHE', operation: 'pruneExpired' }, {})
@@ -666,10 +689,13 @@ describe('runtime message listener', () => {
         success: true,
         operation: 'pruneExpired'
       });
-      expect(handleVideoScreenshotCacheMessage).toHaveBeenCalledWith({
-        type: 'AIIOB_VIDEO_SCREENSHOT_CACHE',
-        operation: 'pruneExpired'
-      });
+      expect(handleVideoScreenshotCacheMessage).toHaveBeenCalledWith(
+        {
+          type: 'AIIOB_VIDEO_SCREENSHOT_CACHE',
+          operation: 'pruneExpired'
+        },
+        {}
+      );
     } finally {
       vi.doUnmock('../../../src/background/services/videoScreenshotCacheService');
     }

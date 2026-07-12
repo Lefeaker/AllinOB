@@ -8,14 +8,25 @@ import type { VideoScreenshotCacheBlobStore } from '../../content/video/videoScr
 import type { RestoreCapabilityPolicyProvider } from '../../shared/capabilities/capabilityPolicy';
 import type { BackgroundVideoScreenshotCachePolicyInput } from './videoScreenshotCachePolicyRuntime';
 import type { StorageEstimateService } from './storageEstimateService';
-import { createLocalRestoreDataService } from './localRestoreDataService';
 import { createRestoreStoragePressureService } from './restoreStoragePressureService';
+import type {
+  SessionDraftDeletionRequest,
+  SessionDraftDeletionResult
+} from './sessionDraftDeletionOwner';
+import { createSessionDraftProtocolFingerprint } from './sessionDraftFingerprint';
 
 export interface RestoreStorageMaintenanceHandlerDependencies {
   local: StorageAreaService;
   blobStore: VideoScreenshotCacheBlobStore;
   estimate: StorageEstimateService;
   policyInput: BackgroundVideoScreenshotCachePolicyInput;
+  deleteScreenshotCandidates(keys: readonly string[]): Promise<{ deletedKeys: string[] }>;
+  deleteDraftCandidates(request: SessionDraftDeletionRequest): Promise<SessionDraftDeletionResult>;
+  clearRestoreData(
+    operationId: string
+  ): Promise<
+    Extract<RestoreStorageMaintenanceResponse, { operation: 'clearAllRestoreData' }>['result']
+  >;
 }
 
 export async function handleRestoreStorageMaintenanceMessage(
@@ -26,18 +37,28 @@ export async function handleRestoreStorageMaintenanceMessage(
     return {
       success: true,
       operation: message.operation,
-      result: await createLocalRestoreDataService({
-        local: dependencies.local,
-        screenshots: dependencies.blobStore
-      }).clearAll()
+      result: await dependencies.clearRestoreData(message.operationId)
     };
   }
 
   const pressure = createRestoreStoragePressureService({
     drafts: dependencies.local,
     screenshots: dependencies.blobStore,
+    deleteScreenshotCandidates: (keys) => dependencies.deleteScreenshotCandidates(keys),
+    async deleteDraftCandidates(keys, cause) {
+      const operationId = `implicit-${globalThis.crypto.randomUUID()}`;
+      return dependencies.deleteDraftCandidates({
+        operationId,
+        requestFingerprint: await createSessionDraftProtocolFingerprint({
+          operationId,
+          cause,
+          keys: [...keys].sort()
+        }),
+        candidateKeys: keys
+      });
+    },
     estimate: dependencies.estimate,
-    getStoragePolicy: () => resolveStoragePolicy(dependencies.policyInput)
+    getStoragePolicy: () => resolveRestoreStoragePolicy(dependencies.policyInput)
   });
   return {
     success: true,
@@ -49,7 +70,7 @@ export async function handleRestoreStorageMaintenanceMessage(
   };
 }
 
-function resolveStoragePolicy(input: BackgroundVideoScreenshotCachePolicyInput) {
+export function resolveRestoreStoragePolicy(input: BackgroundVideoScreenshotCachePolicyInput) {
   return isPolicyProvider(input)
     ? input.getCurrentPolicy()
     : createSessionDraftStoragePolicy({ videoScreenshotCache: input });

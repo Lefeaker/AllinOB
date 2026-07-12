@@ -8,6 +8,8 @@ import type { VideoVisibleFrameScreenshotCapture } from './videoVisibleTabScreen
 import type { VideoScreenshotCacheRepository } from './videoScreenshotCacheRepository';
 import type { VideoScreenshotFrameCapture } from './videoScreenshotPreparationQueueTypes';
 import type { SessionDraftStoragePolicy } from '../sessionDrafts';
+import type { VersionedSessionDraftRepository } from '../sessionDrafts/sessionDraftClientRepository';
+import type { VideoScreenshotCacheProvisionalRepository } from './videoScreenshotCacheClientRepository';
 
 export type VideoSessionAddCaptureOptions = {
   comment?: string;
@@ -29,7 +31,9 @@ export interface VideoSessionDependencies {
   };
   captureVideoFrameScreenshot?: VideoScreenshotFrameCapture;
   captureVisibleVideoFrameScreenshot?: VideoVisibleFrameScreenshotCapture;
-  screenshotCacheRepository?: VideoScreenshotCacheRepository;
+  screenshotCacheRepository?: VideoScreenshotCacheRepository &
+    Partial<Pick<VideoScreenshotCacheProvisionalRepository, 'saveProvisional'>>;
+  sessionDraftRepository: VersionedSessionDraftRepository;
   sessionDraftStoragePolicy?: SessionDraftStoragePolicy;
   showSupportProgress?: SupportProgressReporter;
   trackUsageEvent?: <EventName extends UsageEventName>(

@@ -7,6 +7,10 @@ import type { VideoSessionState } from './sessionState';
 import type { VideoHintState } from './videoHintManager';
 import type { VideoScreenshotCacheRepository } from './videoScreenshotCacheRepository';
 import type { SessionDraftStoragePolicy } from '../sessionDrafts';
+import type { VersionedSessionDraftRepository } from '../sessionDrafts/sessionDraftClientRepository';
+import type { VideoScreenshotCacheProvisionalRepository } from './videoScreenshotCacheClientRepository';
+import type { VideoCaptureScreenshot, VideoTimestampCapture } from './types';
+import type { VideoScreenshotCacheSaveResult } from './videoScreenshotCacheRepository';
 
 export interface VideoSessionDraftDomPort {
   readCommentDrafts(): Record<string, string>;
@@ -25,10 +29,11 @@ export interface VideoSessionDraftControllerOptions {
   state: VideoSessionState;
   destinationState: Pick<ContentExportDestinationState, 'metadata' | 'applyMetadata'>;
   storageArea: StorageAreaService;
+  repository: VersionedSessionDraftRepository;
   sessionDraftStoragePolicy?: SessionDraftStoragePolicy;
   screenshotCache?:
     | (Pick<VideoScreenshotCacheRepository, 'load' | 'removeMany'> &
-        Partial<Pick<VideoScreenshotCacheRepository, 'save'>>)
+        Partial<Pick<VideoScreenshotCacheProvisionalRepository, 'saveProvisional'>>)
     | undefined;
   dom: VideoSessionDraftDomPort;
   trackDraftRestoreEvent?:
@@ -54,6 +59,10 @@ export interface VideoSessionDraftRuntimePort {
   flushNow(status?: 'active' | 'restorable'): Promise<VideoHintState | null>;
   remove(): Promise<void>;
   finalizeTerminal(status: SessionDraftTerminalStatus): Promise<boolean>;
+  persistPreparedScreenshot(
+    capture: VideoTimestampCapture,
+    screenshot: VideoCaptureScreenshot
+  ): Promise<VideoScreenshotCacheSaveResult>;
 }
 
 export interface VideoSessionPlaybackEditLeasePort {

@@ -1,18 +1,16 @@
 import { z } from 'zod';
+import { isObjectRecord, type RuntimePropertyValue } from '../../shared/guards/object';
 import { createSessionDraftPageKey, createSessionDraftStorageKey } from './sessionDraftKeys';
 import {
   SESSION_DRAFT_SCHEMA_VERSION,
-  type ReaderSessionDraftEnvelope,
-  type ReaderSessionDraftPayload,
   type SessionDraftEnvelope,
   type SessionDraftIndex,
-  type SessionDraftIndexEntry,
-  type VideoSessionDraftEnvelope,
-  type VideoSessionDraftPayload
+  type SessionDraftIndexEntry
 } from './sessionDraftTypes';
 
 const TimestampSchema = z.number().int().nonnegative().finite();
 const textEncoder = new TextEncoder();
+export const SESSION_DRAFT_ID_MAX_LENGTH = 256;
 
 export const SessionDraftModeSchema = z.enum(['reader', 'video']);
 export const SessionDraftStatusSchema = z.enum(['active', 'restorable', 'discarded', 'exported']);
@@ -62,7 +60,7 @@ export const VideoSessionDraftPayloadSchema = z
 
 export const SessionDraftEnvelopeMetadataSchema = z.object({
   schemaVersion: z.literal(SESSION_DRAFT_SCHEMA_VERSION),
-  draftId: z.string().min(1),
+  draftId: z.string().min(1).max(SESSION_DRAFT_ID_MAX_LENGTH),
   pageKey: z.string().min(1),
   pageUrl: z.string().url(),
   pageTitle: z.string(),
@@ -89,7 +87,7 @@ export const SessionDraftEnvelopeSchema = z.discriminatedUnion('mode', [
 
 export const SessionDraftIndexEntrySchema = z.object({
   key: z.string().min(1),
-  draftId: z.string().min(1),
+  draftId: z.string().min(1).max(SESSION_DRAFT_ID_MAX_LENGTH),
   mode: SessionDraftModeSchema,
   pageKey: z.string().min(1),
   updatedAt: TimestampSchema,
@@ -129,18 +127,18 @@ export function createSessionDraftIndexEntry(
   };
 }
 
-export function measureSessionDraftValueBytes(value: unknown): number {
+export function measureSessionDraftValueBytes(value: RuntimePropertyValue): number {
   const serialized = JSON.stringify(value);
   return serialized ? textEncoder.encode(serialized).length : 0;
 }
 
-function omitUndefinedOptionalFields<T extends Record<string, unknown>>(value: T): T {
-  return Object.fromEntries(Object.entries(value).filter(([, entry]) => entry !== undefined)) as T;
+function omitUndefinedOptionalFields(value: object): object {
+  return Object.fromEntries(Object.entries(value).filter(([, entry]) => entry !== undefined));
 }
 
 export function containsDisallowedSessionDraftPayloadValue(
-  value: unknown,
-  seen = new Set<unknown>()
+  value: RuntimePropertyValue,
+  seen = new WeakSet<object>()
 ): boolean {
   if (typeof value === 'string') {
     return value.toLowerCase().includes('data:image/');
@@ -158,12 +156,17 @@ export function containsDisallowedSessionDraftPayloadValue(
   if (typeof Blob !== 'undefined' && value instanceof Blob) {
     return true;
   }
-  if (Array.isArray(value)) {
+  if (isRuntimePropertyArray(value)) {
     return value.some((entry) => containsDisallowedSessionDraftPayloadValue(entry, seen));
   }
-  return Object.values(value).some((entry) =>
-    containsDisallowedSessionDraftPayloadValue(entry, seen)
+  if (!isObjectRecord(value)) return false;
+  return Object.keys(value).some((key) =>
+    containsDisallowedSessionDraftPayloadValue(value[key], seen)
   );
+}
+
+function isRuntimePropertyArray(value: RuntimePropertyValue): value is RuntimePropertyValue[] {
+  return Array.isArray(value);
 }
 
 export function normalizeSessionDraftEnvelopeForSave(
@@ -177,20 +180,20 @@ export function normalizeSessionDraftEnvelopeForSave(
     parsed.expiresAt > parsed.updatedAt
       ? Math.min(parsed.expiresAt, retentionExpiresAt)
       : retentionExpiresAt;
-  if (parsed.mode === 'reader') {
-    return {
-      ...parsed,
-      pageKey,
-      expiresAt,
-      payload: omitUndefinedOptionalFields(parsed.payload) as ReaderSessionDraftPayload
-    } as ReaderSessionDraftEnvelope;
-  }
-  return {
+  const normalized = {
     ...parsed,
     pageKey,
     expiresAt,
-    payload: omitUndefinedOptionalFields(parsed.payload) as VideoSessionDraftPayload
-  } as VideoSessionDraftEnvelope;
+    payload: omitUndefinedOptionalFields(parsed.payload)
+  };
+  if (!isNormalizedSessionDraftEnvelope(normalized)) {
+    throw new Error('SESSION_DRAFT_NORMALIZATION_FAILED');
+  }
+  return normalized;
+}
+
+function isNormalizedSessionDraftEnvelope(value: object): value is SessionDraftEnvelope {
+  return SessionDraftEnvelopeSchema.safeParse(value).success;
 }
 
 export function pruneSessionDraftIndexEntries(

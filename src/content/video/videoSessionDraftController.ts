@@ -1,8 +1,7 @@
 import { VIDEO_TITLE_FALLBACK } from '../../i18n/catalog/runtimeFallbackMessages';
-import { bucketCount, createFeatureTimer, type FeatureTimer } from '../../shared/analytics';
+import { createFeatureTimer, type FeatureTimer } from '../../shared/analytics';
 import {
   createSessionDraftPersister,
-  createSessionDraftRepository,
   finalizeTerminalSessionDraft,
   type SessionDraftPersister,
   type SessionDraftStatus,
@@ -22,7 +21,7 @@ import type {
   VideoSessionDraftControllerOptions,
   VideoSessionDraftRuntimePort
 } from './videoSessionRuntimePorts';
-import type { VideoCapture } from './types';
+import type { VideoCapture, VideoCaptureScreenshot, VideoTimestampCapture } from './types';
 import type { VideoHintState } from './videoHintManager';
 import {
   applyVideoSessionCommentDrafts,
@@ -36,51 +35,17 @@ import {
 } from './videoSessionDraftScreenshotCache';
 import { scheduleRestoredVideoDraftScreenshotHydration } from './videoSessionDraftScreenshotHydration';
 import { buildVideoTerminalEnvelopeForExactKey } from './videoSessionDraftTerminal';
-import { hasRequestedTimestampScreenshot } from './screenshotIntent';
+import type { VideoScreenshotCacheSaveResult } from './videoScreenshotCacheRepository';
 import type { RestoredVideoDraftScreenshotHydrationSettledResult } from './videoSessionDraftScreenshotHydration';
-
-type VideoDraftRestoreTelemetryParams = Parameters<
-  NonNullable<VideoSessionDraftControllerOptions['trackDraftRestoreEvent']>
->[0];
-
-function countRequestedDraftScreenshots(captures: readonly VideoCapture[]): number {
-  return captures.filter(
-    (capture): capture is Extract<VideoCapture, { kind: 'timestamp' }> =>
-      capture.kind === 'timestamp' &&
-      (hasRequestedTimestampScreenshot(capture) ||
-        capture.screenshot !== undefined ||
-        capture.screenshotRef !== undefined)
-  ).length;
-}
-
-function buildDraftRestoreTelemetryParams(args: {
-  captures: readonly VideoCapture[];
-  outcome: VideoDraftRestoreTelemetryParams['outcome'];
-  restoreTimer: FeatureTimer;
-  staleRefCount?: number;
-}): VideoDraftRestoreTelemetryParams {
-  return {
-    capture_count_bucket: bucketCount(args.captures.length),
-    screenshot_count_bucket: bucketCount(countRequestedDraftScreenshots(args.captures)),
-    outcome: args.outcome,
-    ...(args.staleRefCount && args.staleRefCount > 0
-      ? { stale_screenshot_ref_count_bucket: bucketCount(args.staleRefCount) }
-      : {}),
-    duration_bucket: args.restoreTimer.durationBucket()
-  };
-}
-
-function readDraftRestoreTelemetryCaptures(
-  draft: VideoSessionDraftEnvelope
-): readonly VideoCapture[] {
-  const payload = draft.payload as Partial<VideoSessionDraftPayloadShape>;
-  return Array.isArray(payload.captures) ? (payload.captures as VideoCapture[]) : [];
-}
+import { persistPreparedVideoDraftScreenshot } from './videoSessionDraftProvisionalScreenshot';
+import {
+  buildDraftRestoreTelemetryParams,
+  readDraftRestoreTelemetryCaptures,
+  type VideoDraftRestoreTelemetryParams
+} from './videoSessionDraftRestoreTelemetry';
 export class VideoSessionDraftController implements VideoSessionDraftRuntimePort {
-  private readonly draftRepository = createSessionDraftRepository(this.options.storageArea, {
-    storagePolicy: this.options.sessionDraftStoragePolicy
-  });
-  private readonly draftId = createVideoSessionDraftId();
+  private readonly draftRepository = this.options.repository;
+  private draftId = createVideoSessionDraftId();
   private readonly draftPersister: SessionDraftPersister;
   private readonly screenshotCacheMaintenance = createVideoSessionDraftScreenshotCacheMaintenance(
     this.options.screenshotCache
@@ -196,6 +161,21 @@ export class VideoSessionDraftController implements VideoSessionDraftRuntimePort
     } catch (error) {
       this.logSupersededDurableCleanupError(error);
     }
+  }
+
+  async persistPreparedScreenshot(
+    capture: VideoTimestampCapture,
+    screenshot: VideoCaptureScreenshot
+  ): Promise<VideoScreenshotCacheSaveResult> {
+    return persistPreparedVideoDraftScreenshot({
+      repository: this.draftRepository,
+      saveProvisional: this.options.screenshotCache?.saveProvisional,
+      activeDraftPageUrl: this.activeDraftPageUrl,
+      draftId: this.draftId,
+      capture,
+      screenshot,
+      buildEnvelope: () => this.buildDraftEnvelope()
+    });
   }
 
   async flushNow(status: SessionDraftStatus = 'active'): Promise<VideoHintState | null> {

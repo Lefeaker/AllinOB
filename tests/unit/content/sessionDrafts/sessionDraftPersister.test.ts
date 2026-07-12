@@ -192,6 +192,23 @@ describe('sessionDraftPersister', () => {
     expect(repository.save).not.toHaveBeenCalled();
   });
 
+  it('cancels a pending save synchronously without waiting for its timer', async () => {
+    vi.useFakeTimers();
+    const repository = { save: vi.fn(async () => undefined) };
+    const persister = createSessionDraftPersister({
+      repository,
+      buildEnvelope: () => createEnvelope('draft-cancelled', 1),
+      delayMs: 10
+    });
+    const scheduled = persister.scheduleSave();
+
+    persister.cancelPending();
+    await scheduled;
+    await vi.advanceTimersByTimeAsync(10);
+
+    expect(repository.save).not.toHaveBeenCalled();
+  });
+
   it('surfaces write failures through the returned promise', async () => {
     vi.useFakeTimers();
 

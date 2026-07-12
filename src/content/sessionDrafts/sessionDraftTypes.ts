@@ -122,6 +122,10 @@ export interface SessionDraftRepositoryOptions {
   maxEnvelopeBytes?: number;
   resolveOwnerContext?: () => MaybePromise<SessionDraftOwnerContext | null | undefined>;
   isOwnerContextActive?: (ownerContext: SessionDraftOwnerContext) => MaybePromise<boolean>;
+  deleteKeys?: (
+    keys: readonly string[],
+    cause: 'repair' | 'save-retention' | 'remove' | 'prune'
+  ) => Promise<void>;
 }
 
 export type SessionDraftRemovalTarget = string | { key: string };
@@ -164,6 +168,7 @@ export interface SessionDraftPersisterOptions<
 
 export interface SessionDraftPersister {
   scheduleSave(): Promise<void>;
+  cancelPending(): void;
   flushNow(): Promise<void>;
   dispose(options?: { flush?: boolean }): Promise<void>;
 }

@@ -16,6 +16,8 @@ import {
 import { createVideoScreenshotCacheClientRepository } from './videoScreenshotCacheClientRepository';
 import { captureVideoFrameScreenshotDataUrl } from './videoFrameScreenshot';
 import { isFirefox } from '../../shared/utils/browserDetection';
+import { createSessionDraftClientRepository } from '../sessionDrafts/sessionDraftClientRepository';
+import type { VersionedSessionDraftRepository } from '../sessionDrafts/sessionDraftClientRepository';
 
 export interface VideoSessionPlatformDependencies {
   // Content composition root now passes the primary repository contract.
@@ -33,6 +35,11 @@ export function createVideoSessionDependencies(
 ): VideoSessionDependencies {
   const runtime = deps.runtime;
   const firefox = isFirefox();
+  const sessionDraftRepository = deps.messaging
+    ? createSessionDraftClientRepository({
+        send: (message) => deps.messaging?.send(message) ?? Promise.resolve(undefined)
+      })
+    : createUnavailableSessionDraftRepository();
   return {
     viewFactory: createVideoPanelViewFactory(
       runtime
@@ -45,6 +52,7 @@ export function createVideoSessionDependencies(
     videoRepository:
       deps.videoRepository ?? resolveRepository<IVideoRepository>(DI_TOKENS.IVideoRepository),
     storage: deps.storage,
+    sessionDraftRepository,
     ...(firefox ? { captureVideoFrameScreenshot: captureVideoFrameScreenshotDataUrl } : {}),
     ...(deps.messaging
       ? {
@@ -62,5 +70,18 @@ export function createVideoSessionDependencies(
       ? { sessionDraftStoragePolicy: deps.sessionDraftStoragePolicy }
       : {}),
     ...(deps.showSupportProgress ? { showSupportProgress: deps.showSupportProgress } : {})
+  };
+}
+
+function createUnavailableSessionDraftRepository(): VersionedSessionDraftRepository {
+  const unavailable = () => Promise.reject(new Error('SESSION_DRAFT_MESSAGING_UNAVAILABLE'));
+  return {
+    loadLatest: unavailable,
+    save: unavailable,
+    remove: unavailable,
+    listCandidates: unavailable,
+    pruneExpired: unavailable,
+    claim: unavailable,
+    runWriteOperation: unavailable
   };
 }

@@ -5,7 +5,7 @@ import {
   SESSION_DRAFT_MAX_ENVELOPE_BYTES,
   createSessionDraftStoragePolicy
 } from '@content/sessionDrafts';
-import { createSessionDraftRepository } from '@content/sessionDrafts/sessionDraftRepository';
+import { createDirectSessionDraftRepository as createSessionDraftRepository } from '@content/sessionDrafts/sessionDraftRepository';
 import {
   SESSION_DRAFT_INDEX_KEY,
   createSessionDraftPageKey,

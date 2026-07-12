@@ -3,11 +3,11 @@ import type {
   ReaderSessionAdapter,
   VideoSessionAdapter
 } from '../clipper/services/selectionController';
+import type { SessionDraftStoragePolicy } from '../sessionDrafts';
 import {
-  createSessionDraftRepository,
-  DEFAULT_SESSION_DRAFT_STORAGE_POLICY,
-  type SessionDraftStoragePolicy
-} from '../sessionDrafts';
+  createSessionDraftClientRepository,
+  type SessionDraftRepositoryMessaging
+} from '../sessionDrafts/sessionDraftClientRepository';
 import { watchVideoNavigation, type VideoNavigationWatcher } from '../video/videoNavigationWatcher';
 
 const VIDEO_ELEMENT_WAIT_TIMEOUT_MS = 1_500;
@@ -16,6 +16,7 @@ export interface SessionDraftAutoRestoreOptions {
   document: Document;
   window: Window;
   storage: StorageService;
+  messaging?: SessionDraftRepositoryMessaging;
   currentUrl: () => string;
   createReaderSession: () => ReaderSessionAdapter;
   createVideoSession: () => VideoSessionAdapter;
@@ -39,13 +40,11 @@ export function startSessionDraftAutoRestore(
   const isSessionActive = (): boolean =>
     options.isReaderSessionActive() || options.isVideoSessionActive();
 
-  const createRepository = () =>
-    createSessionDraftRepository(options.storage.local, {
-      storagePolicy:
-        options.getSessionDraftStoragePolicy?.() ??
-        options.sessionDraftStoragePolicy ??
-        DEFAULT_SESSION_DRAFT_STORAGE_POLICY
-    });
+  const repository = options.messaging
+    ? createSessionDraftClientRepository({
+        send: (message) => options.messaging?.send(message) ?? Promise.resolve(undefined)
+      })
+    : null;
 
   const queueRestore = (): void => {
     if (stopped) {
@@ -82,7 +81,7 @@ export function startSessionDraftAutoRestore(
 
       const href = options.currentUrl();
       const isVideoCandidate = options.isVideoCandidateUrl(href);
-      const repository = createRepository();
+      if (!repository) return;
       const [videoDraft, readerDraft] = await Promise.all([
         isVideoCandidate ? repository.loadLatest('video', href) : Promise.resolve(null),
         repository.loadLatest('reader', href)
@@ -102,6 +101,7 @@ export function startSessionDraftAutoRestore(
         if (!videoReady || stopped || abortController.signal.aborted || isSessionActive()) {
           return;
         }
+        await repository.claim(videoDraft);
         await options.createVideoSession().start();
         return;
       }
@@ -110,6 +110,7 @@ export function startSessionDraftAutoRestore(
         if (stopped || abortController.signal.aborted || isSessionActive()) {
           return;
         }
+        await repository.claim(readerDraft);
         await options.createReaderSession().start();
         return;
       }

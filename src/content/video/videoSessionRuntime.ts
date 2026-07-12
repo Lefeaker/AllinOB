@@ -62,7 +62,7 @@ import { VideoCommentEditorPlaybackController } from './videoCommentEditorPlayba
 import { VideoScreenshotPreparationCoordinator } from './videoScreenshotPreparationCoordinator';
 import { applyVideoSessionCommentDrafts } from './videoSessionDraftSync';
 import { createVideoSessionDestinationPayload } from './videoSessionDestinationPayload';
-import { hasRequestedTimestampScreenshot, setTimestampScreenshotRef } from './screenshotIntent';
+import { hasRequestedTimestampScreenshot } from './screenshotIntent';
 import type { VideoTimestampCapture } from './types';
 import { VideoSessionMutationCoordinator } from './videoSessionMutationCoordinator';
 import { emitVideoUsageEvent } from './videoCaptureMutationTransaction';
@@ -397,25 +397,13 @@ export class VideoSession {
 
     let saveResult;
     try {
-      saveResult = await persistPreparedScreenshotCache(capture.id, screenshot);
+      saveResult = await persistPreparedScreenshotCache(capture, screenshot);
     } catch (error) {
       console.warn('[VideoSession] Failed to persist prepared screenshot:', error);
       return;
     }
     if (saveResult.status !== 'saved') {
       console.debug('[VideoSession] Skipped prepared screenshot cache persistence:', saveResult);
-      return;
-    }
-
-    if (capture.screenshot !== screenshot) {
-      return;
-    }
-
-    setTimestampScreenshotRef(capture, saveResult.ref);
-    try {
-      await this.draftController.scheduleSave();
-    } catch (error) {
-      console.warn('[VideoSession] Failed to schedule screenshot ref draft save:', error);
       return;
     }
 

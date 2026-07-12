@@ -19,6 +19,7 @@ interface VideoScreenshotCachePolicyRuntimeDependencies {
   legacyArea: StorageAreaService;
   blobStore?: VideoScreenshotCacheBlobStore;
   indexedDb?: VideoScreenshotCacheIndexedDbStoreOptions['indexedDb'];
+  deleteCandidates(keys: readonly string[]): Promise<{ deletedKeys: string[] }>;
 }
 
 export interface VideoScreenshotCachePolicyRuntime {
@@ -57,7 +58,8 @@ export function createVideoScreenshotCachePolicyRuntime(
                 indexedDb: dependencies.indexedDb,
                 maxContentBytes: options.maxContentBytes
               }),
-            legacyArea: dependencies.legacyArea
+            legacyArea: dependencies.legacyArea,
+            deleteCandidates: (keys) => dependencies.deleteCandidates(keys)
           },
           options
         );

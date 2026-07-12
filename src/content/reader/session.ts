@@ -168,6 +168,7 @@ export class ReaderSession {
       doc: this.doc,
       pageUrl: this.url,
       storageArea: this.dependencies.storage.local,
+      repository: this.dependencies.sessionDraftRepository,
       getPageTitle: () => this.getDraftPageTitle(),
       getHighlights: () => this.state.highlights,
       getCommentDrafts: () => this.panelCoordinator.snapshotCommentDrafts(),
@@ -549,7 +550,6 @@ export class ReaderSession {
 
     this.doc.defaultView?.getSelection()?.removeAllRanges();
   }
-
   private focusHighlight(id: string): void {
     focusReaderHighlight(this.operationContext, id);
   }

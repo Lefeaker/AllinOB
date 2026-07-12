@@ -6,7 +6,7 @@ import { createMemoryStorageArea } from '@platform/preview/memoryStorage';
 import {
   SESSION_DRAFT_INDEX_KEY,
   createSessionDraftPageKey,
-  createSessionDraftRepository,
+  createDirectSessionDraftRepository as createSessionDraftRepository,
   createSessionDraftStoragePolicy,
   createSessionDraftStorageKey,
   type SessionDraftEnvelope,
@@ -23,6 +23,8 @@ import {
   buildVideoSessionDraftPayload,
   createVideoSessionDraftEnvelope
 } from '@content/video/sessionDrafts';
+import { createBackgroundVideoScreenshotCacheHandler } from '../../../src/background/services/videoScreenshotCacheService';
+import { isObjectRecord } from '@shared/guards/object';
 
 function createHarness(
   initialUrl: string,
@@ -48,6 +50,18 @@ function createHarness(
       ? { retentionPolicy: options.sessionDraftStoragePolicy.retentionPolicy }
       : {}
   );
+  const backgroundHandler = createBackgroundVideoScreenshotCacheHandler(
+    { local: storage.local },
+    {
+      getCurrentPolicy: () =>
+        options.getSessionDraftStoragePolicy?.() ??
+        options.sessionDraftStoragePolicy ??
+        createSessionDraftStoragePolicy()
+    }
+  );
+  const sessionDraftSend = vi.fn(async (message: unknown) => {
+    return backgroundHandler(message, { tabId: 7, windowId: 3, frameId: 0 });
+  });
   const readerStart = vi.fn<ReaderSessionAdapter['start']>().mockResolvedValue(undefined);
   const videoStart = vi.fn<VideoSessionAdapter['start']>().mockResolvedValue(undefined);
   const createReaderSession = vi.fn<() => ReaderSessionAdapter>(() => ({
@@ -64,6 +78,7 @@ function createHarness(
 
   return {
     repository,
+    sessionDraftSend,
     storage,
     currentUrl: () => href,
     setUrl: (url: string) => {
@@ -81,6 +96,7 @@ function createHarness(
         document,
         window,
         storage,
+        messaging: { send: sessionDraftSend },
         currentUrl: () => href,
         createReaderSession,
         createVideoSession,
@@ -190,15 +206,27 @@ function createVideoDraftEnvelope(pageUrl: string, updatedAt = Date.now()) {
 }
 
 async function flushAsyncWork(): Promise<void> {
-  for (let index = 0; index < 6; index += 1) {
-    await Promise.resolve();
+  for (let round = 0; round < 4; round += 1) {
+    for (let index = 0; index < 16; index += 1) await Promise.resolve();
+    if (!vi.isFakeTimers()) {
+      await new Promise((resolve) => window.setTimeout(resolve, 0));
+    } else {
+      await vi.advanceTimersByTimeAsync(0);
+    }
   }
-  if (!vi.isFakeTimers()) {
-    await new Promise((resolve) => window.setTimeout(resolve, 0));
+}
+
+async function waitForCall(
+  mock: { mock: { calls: unknown[][] } },
+  expectedCalls = 1
+): Promise<void> {
+  for (let round = 0; round < 100; round += 1) {
+    if (mock.mock.calls.length >= expectedCalls) return;
+    for (let index = 0; index < 8; index += 1) await Promise.resolve();
+    if (vi.isFakeTimers()) await vi.advanceTimersByTimeAsync(0);
+    else await new Promise((resolve) => window.setTimeout(resolve, 0));
   }
-  for (let index = 0; index < 6; index += 1) {
-    await Promise.resolve();
-  }
+  throw new Error(`Expected ${expectedCalls} call(s), received ${mock.mock.calls.length}`);
 }
 
 describe('sessionDraftAutoRestore', () => {
@@ -220,10 +248,15 @@ describe('sessionDraftAutoRestore', () => {
     await harness.repository.save(createVideoDraftEnvelope(url));
 
     const stop = harness.start();
-    await flushAsyncWork();
+    await waitForCall(harness.videoStart);
 
     expect(harness.videoStart).toHaveBeenCalledTimes(1);
     expect(harness.readerStart).not.toHaveBeenCalled();
+    expect(
+      harness.sessionDraftSend.mock.calls.some(
+        ([message]) => isObjectRecord(message) && message.operation === 'loadLatestSessionDraft'
+      )
+    ).toBe(true);
     stop();
   });
 
@@ -233,7 +266,7 @@ describe('sessionDraftAutoRestore', () => {
     await harness.repository.save(createReaderDraftEnvelope(url));
 
     const stop = harness.start();
-    await flushAsyncWork();
+    await waitForCall(harness.readerStart);
 
     expect(harness.readerStart).toHaveBeenCalledTimes(1);
     expect(harness.readerStart.mock.calls[0]).toHaveLength(0);
@@ -280,7 +313,7 @@ describe('sessionDraftAutoRestore', () => {
     });
 
     const stop = harness.start();
-    await flushAsyncWork();
+    await waitForCall(harness.readerStart);
 
     expect(harness.readerStart).toHaveBeenCalledTimes(1);
     expect(harness.videoStart).not.toHaveBeenCalled();
@@ -323,7 +356,7 @@ describe('sessionDraftAutoRestore', () => {
 
     currentPolicy = extendedPolicy;
     window.dispatchEvent(new Event('pageshow'));
-    await flushAsyncWork();
+    await waitForCall(harness.readerStart);
 
     expect(harness.readerStart).toHaveBeenCalledTimes(1);
     expect(harness.videoStart).not.toHaveBeenCalled();
@@ -408,7 +441,7 @@ describe('sessionDraftAutoRestore', () => {
     await harness.repository.save(createVideoDraftEnvelope(url));
 
     const stop = harness.start();
-    await flushAsyncWork();
+    await waitForCall(harness.videoStart);
 
     expect(harness.videoStart).toHaveBeenCalledTimes(1);
     expect(harness.readerStart).not.toHaveBeenCalled();
@@ -427,7 +460,7 @@ describe('sessionDraftAutoRestore', () => {
     await harness.repository.save(createReaderDraftEnvelope(nextUrl));
     harness.setUrl(nextUrl);
     window.dispatchEvent(new PopStateEvent('popstate'));
-    await flushAsyncWork();
+    await waitForCall(harness.readerStart);
 
     expect(harness.readerStart).toHaveBeenCalledTimes(1);
     stop();
@@ -446,7 +479,15 @@ describe('sessionDraftAutoRestore', () => {
 
     document.body.appendChild(document.createElement('video'));
     document.dispatchEvent(new Event('visibilitychange'));
-    await flushAsyncWork();
+    await waitForCall(harness.videoStart);
+
+    const claimCall = harness.sessionDraftSend.mock.calls.findIndex(
+      ([message]) => isObjectRecord(message) && message.operation === 'claimSessionDraft'
+    );
+    expect(claimCall).toBeGreaterThanOrEqual(0);
+    expect(harness.sessionDraftSend.mock.invocationCallOrder[claimCall]).toBeLessThan(
+      harness.videoStart.mock.invocationCallOrder[0] ?? Number.MAX_SAFE_INTEGER
+    );
 
     expect(harness.videoStart).toHaveBeenCalledTimes(1);
     stop();

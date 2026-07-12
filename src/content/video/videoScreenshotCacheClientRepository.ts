@@ -1,4 +1,3 @@
-import { serializedAttachmentContentToBlob } from '../../shared/attachments/clipAttachmentBinary';
 import type { MessagingService } from '../../platform/interfaces/messaging';
 import type { VideoCaptureScreenshot } from './types';
 import type {
@@ -8,15 +7,32 @@ import type {
 } from './videoScreenshotCacheRepository';
 import {
   VIDEO_SCREENSHOT_CACHE_MESSAGE,
-  type SerializedVideoScreenshotCacheScreenshot,
   type VideoScreenshotCacheMessage,
   type VideoScreenshotCacheResponse
 } from './videoScreenshotCacheMessages';
 import type { VideoScreenshotCacheRef } from './videoScreenshotCacheTypes';
-import { serializeVideoScreenshotAttachment } from './videoScreenshotAttachmentSerialization';
+import type { SessionDraftOperationContext } from '../sessionDrafts/sessionDraftRepositoryMessages';
+import { SessionDraftTransportUnknownError } from '../sessionDrafts/sessionDraftWriteOperation';
+import {
+  normalizeVideoScreenshotCacheResponse,
+  type VideoScreenshotCacheClientOperation
+} from './videoScreenshotCacheResponses';
+import {
+  deserializeScreenshotFromCache,
+  matchesScreenshotLoadRequest,
+  matchesScreenshotSaveRequest,
+  serializeScreenshotForCache
+} from './videoScreenshotCacheClientCodecs';
 
 export interface VideoScreenshotCacheClientRepositoryOptions {
   messaging: Pick<MessagingService, 'send'>;
+}
+
+export interface VideoScreenshotCacheProvisionalRepository extends VideoScreenshotCacheRepository {
+  saveProvisional(
+    input: VideoScreenshotCacheSaveInput,
+    context: SessionDraftOperationContext
+  ): Promise<VideoScreenshotCacheSaveResult>;
 }
 
 function errorMessage(error: Error | string): string {
@@ -31,72 +47,26 @@ function messageFailure(error: Error | string): VideoScreenshotCacheSaveResult {
   };
 }
 
-function isVideoScreenshotCacheResponse(
-  value: VideoScreenshotCacheResponse | object | null | undefined
-): value is VideoScreenshotCacheResponse {
-  return typeof value === 'object' && value !== null && 'success' in value;
-}
-
-async function serializeScreenshot(
-  screenshot: VideoCaptureScreenshot
-): Promise<SerializedVideoScreenshotCacheScreenshot | null> {
-  const attachment = await serializeVideoScreenshotAttachment(screenshot);
-  if (!attachment) {
-    return null;
-  }
-  return {
-    id: screenshot.id,
-    fileName: screenshot.fileName,
-    mimeType: screenshot.mimeType,
-    capturedAt: screenshot.capturedAt,
-    ...('content' in attachment ? { content: attachment.content } : { dataUrl: attachment.dataUrl })
-  };
-}
-
-function deserializeScreenshot(
-  screenshot: SerializedVideoScreenshotCacheScreenshot
-): VideoCaptureScreenshot {
-  const blob = serializedAttachmentContentToBlob(
-    screenshot.content
-      ? {
-          kind: 'base64',
-          binary: screenshot.content
-        }
-      : {
-          kind: 'legacyDataUrl',
-          dataUrl: screenshot.dataUrl ?? ''
-        },
-    screenshot.mimeType
-  );
-
-  return {
-    id: screenshot.id,
-    fileName: screenshot.fileName,
-    mimeType: screenshot.mimeType,
-    capturedAt: screenshot.capturedAt,
-    content: {
-      kind: 'blob',
-      blob,
-      byteLength: blob.size
-    }
-  };
-}
-
 export function createVideoScreenshotCacheClientRepository({
   messaging
-}: VideoScreenshotCacheClientRepositoryOptions): VideoScreenshotCacheRepository {
-  async function send(message: VideoScreenshotCacheMessage): Promise<VideoScreenshotCacheResponse> {
+}: VideoScreenshotCacheClientRepositoryOptions): VideoScreenshotCacheProvisionalRepository {
+  async function send(
+    message: VideoScreenshotCacheMessage & { operation: VideoScreenshotCacheClientOperation }
+  ): Promise<VideoScreenshotCacheResponse> {
     const response = await messaging.send<VideoScreenshotCacheResponse>(message);
-    if (!isVideoScreenshotCacheResponse(response)) {
+    const normalized = normalizeVideoScreenshotCacheResponse(response, message.operation);
+    if (!normalized) {
       return {
         success: false,
         error: 'VIDEO_SCREENSHOT_CACHE_INVALID_RESPONSE'
       };
     }
-    return response;
+    return normalized;
   }
 
-  async function sendMutation(message: VideoScreenshotCacheMessage): Promise<void> {
+  async function sendMutation(
+    message: VideoScreenshotCacheMessage & { operation: VideoScreenshotCacheClientOperation }
+  ): Promise<void> {
     const response = await send(message);
     if (!response.success) {
       throw new Error(response.error);
@@ -106,40 +76,58 @@ export function createVideoScreenshotCacheClientRepository({
     }
   }
 
-  return {
-    async save(input: VideoScreenshotCacheSaveInput): Promise<VideoScreenshotCacheSaveResult> {
-      let screenshot: SerializedVideoScreenshotCacheScreenshot | null;
-      try {
-        screenshot = await serializeScreenshot(input.screenshot);
-      } catch (error) {
-        return messageFailure(error instanceof Error ? error : String(error));
-      }
-      if (!screenshot) {
-        return {
-          status: 'skipped',
-          reason: 'missing-blob-content'
-        };
-      }
+  async function save(
+    input: VideoScreenshotCacheSaveInput,
+    operationContext?: SessionDraftOperationContext
+  ): Promise<VideoScreenshotCacheSaveResult> {
+    let screenshot;
+    try {
+      screenshot = await serializeScreenshotForCache(input.screenshot);
+    } catch (error) {
+      return messageFailure(error instanceof Error ? error : String(error));
+    }
+    if (!screenshot) {
+      return {
+        status: 'skipped',
+        reason: 'missing-blob-content'
+      };
+    }
 
-      try {
-        const response = await send({
-          type: VIDEO_SCREENSHOT_CACHE_MESSAGE,
-          operation: 'save',
-          input: {
-            pageKey: input.pageKey,
-            captureId: input.captureId,
-            screenshot
-          }
-        });
-
-        if (response.success && response.operation === 'save') {
-          return response.result;
+    try {
+      const response = await send({
+        type: VIDEO_SCREENSHOT_CACHE_MESSAGE,
+        operation: 'save',
+        input: {
+          pageKey: input.pageKey,
+          captureId: input.captureId,
+          ...(operationContext ? { operationContext } : {}),
+          screenshot
         }
-        return messageFailure(response.success ? 'Unexpected save response.' : response.error);
-      } catch (error) {
-        return messageFailure(error instanceof Error ? error : String(error));
+      });
+
+      if (response.success && response.operation === 'save') {
+        if (
+          response.result.status === 'saved' &&
+          !matchesScreenshotSaveRequest(response.result.ref, input, screenshot)
+        ) {
+          return messageFailure('VIDEO_SCREENSHOT_CACHE_INVALID_RESPONSE');
+        }
+        return response.result;
       }
-    },
+      return messageFailure(response.success ? 'Unexpected save response.' : response.error);
+    } catch (error) {
+      if (operationContext) {
+        throw new SessionDraftTransportUnknownError(
+          error instanceof Error ? error.message : String(error)
+        );
+      }
+      return messageFailure(error instanceof Error ? error : String(error));
+    }
+  }
+
+  return {
+    save,
+    saveProvisional: (input, context) => save(input, context),
 
     async load(ref: VideoScreenshotCacheRef): Promise<VideoCaptureScreenshot | null> {
       try {
@@ -151,7 +139,8 @@ export function createVideoScreenshotCacheClientRepository({
         if (!response.success || response.operation !== 'load' || response.status !== 'loaded') {
           return null;
         }
-        return deserializeScreenshot(response.screenshot);
+        if (!matchesScreenshotLoadRequest(response.screenshot, ref)) return null;
+        return deserializeScreenshotFromCache(response.screenshot);
       } catch {
         return null;
       }

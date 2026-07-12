@@ -1,6 +1,6 @@
-import type { ObjectRecord, RuntimePropertyValue } from '../../shared/guards/object';
+import type { RuntimePropertyValue } from '../../shared/guards/object';
 
-export type VideoScreenshotCacheIndexedDbRecord = ObjectRecord;
+export type VideoScreenshotCacheIndexedDbRecord = RuntimePropertyValue;
 
 export type VideoScreenshotCacheIndexedDbRequest<T> = {
   result: T;
@@ -25,7 +25,10 @@ export type VideoScreenshotCacheIndexedDbObjectStore = {
   put(entry: RuntimePropertyValue): VideoScreenshotCacheIndexedDbRequest<RuntimePropertyValue>;
   get(key: string): VideoScreenshotCacheIndexedDbRequest<RuntimePropertyValue>;
   delete(key: string): VideoScreenshotCacheIndexedDbRequest<undefined>;
+  count(): VideoScreenshotCacheIndexedDbRequest<number>;
+  clear(): VideoScreenshotCacheIndexedDbRequest<undefined>;
   getAll(): VideoScreenshotCacheIndexedDbRequest<VideoScreenshotCacheIndexedDbRecord[]>;
+  getAllKeys(): VideoScreenshotCacheIndexedDbRequest<IDBValidKey[]>;
   index(name: string): VideoScreenshotCacheIndexedDbIndex;
   createIndex(name: string, keyPath: string | string[]): VideoScreenshotCacheIndexedDbIndex;
 };

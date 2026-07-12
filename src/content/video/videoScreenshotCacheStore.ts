@@ -26,22 +26,54 @@ export interface VideoScreenshotCacheBlobEntry extends VideoScreenshotCacheBlobM
 
 export interface VideoScreenshotCacheBlobStorePruneOptions extends VideoScreenshotCachePruneOptions {}
 
-export interface VideoScreenshotCacheBlobStorePruneResult extends VideoScreenshotCachePruneResult {
+export interface VideoScreenshotCacheBlobStorePruneResult {
   entries: VideoScreenshotCacheBlobMetadata[];
+  candidateKeys: string[];
+  invalidKeys: string[];
+  dirty: boolean;
 }
 
-export interface VideoScreenshotCacheBlobStore {
-  put(entry: VideoScreenshotCacheBlobEntry): Promise<void>;
-  get(key: string): Promise<VideoScreenshotCacheBlobEntry | null>;
-  delete(key: string): Promise<void>;
-  deleteMany(keys: readonly string[]): Promise<void>;
-  deleteAll(): Promise<number>;
-  listByPageKey(pageKey: string): Promise<VideoScreenshotCacheBlobEntry[]>;
-  listAllMetadata(): Promise<VideoScreenshotCacheBlobMetadata[]>;
+export type VideoScreenshotCacheBlobReadResult =
+  | { status: 'found'; entry: VideoScreenshotCacheBlobEntry }
+  | { status: 'missing' }
+  | { status: 'invalid'; key: string };
+
+export interface VideoScreenshotCacheBlobListResult<Entry> {
+  entries: Entry[];
+  invalidKeys: string[];
+}
+
+export interface VideoScreenshotCacheBlobObservationStore {
+  get(key: string): Promise<VideoScreenshotCacheBlobReadResult>;
+  peek?(
+    key: string
+  ): VideoScreenshotCacheBlobReadResult | Promise<VideoScreenshotCacheBlobReadResult>;
+  listByPageKey(
+    pageKey: string
+  ): Promise<VideoScreenshotCacheBlobListResult<VideoScreenshotCacheBlobEntry>>;
+  listAllMetadata(): Promise<VideoScreenshotCacheBlobListResult<VideoScreenshotCacheBlobMetadata>>;
   prune(
     options: VideoScreenshotCacheBlobStorePruneOptions
   ): Promise<VideoScreenshotCacheBlobStorePruneResult>;
 }
+
+export interface VideoScreenshotCacheBlobDeletionStore {
+  delete(key: string): Promise<void>;
+  deleteMany(keys: readonly string[]): Promise<void>;
+}
+
+export interface VideoScreenshotCacheBlobStore
+  extends VideoScreenshotCacheBlobObservationStore, VideoScreenshotCacheBlobDeletionStore {
+  put(entry: VideoScreenshotCacheBlobEntry): Promise<void>;
+}
+
+export interface ExplicitRestoreStorageBlobClearCapability {
+  countAll?(): Promise<number>;
+  deleteAll(): Promise<number>;
+}
+
+export type VideoScreenshotCacheBlobMaintenanceStore = VideoScreenshotCacheBlobStore &
+  ExplicitRestoreStorageBlobClearCapability;
 
 export function normalizeVideoScreenshotCacheBlobMetadata(
   value: RuntimePropertyValue,
@@ -87,7 +119,7 @@ export function sortVideoScreenshotCacheBlobMetadataNewestFirst<
 export function pruneVideoScreenshotCacheBlobMetadataEntries(
   entries: readonly VideoScreenshotCacheBlobMetadata[],
   options: VideoScreenshotCacheBlobStorePruneOptions
-): VideoScreenshotCacheBlobStorePruneResult {
+): VideoScreenshotCachePruneResult {
   return pruneVideoScreenshotCacheIndexEntries(entries, options);
 }
 
