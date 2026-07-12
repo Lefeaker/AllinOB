@@ -1,5 +1,6 @@
 import { spawnSync } from 'node:child_process';
 import type { SpawnSyncReturns } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import {
   copyFileSync,
   cpSync,
@@ -16,7 +17,14 @@ import { dirname, join, resolve } from 'node:path';
 
 import { validateFreezeComparisons } from '../../../scripts/preview-freeze-check.mjs';
 
-const FROZEN_ARTIFACTS = [
+interface FrozenArtifact {
+  fileName: string;
+  label: string;
+  originalSha256: string;
+  currentSha256: string;
+}
+
+const FROZEN_ARTIFACTS: readonly FrozenArtifact[] = [
   {
     fileName: 'index.html',
     label: 'original reference index.html vs current generated preview index.html',
@@ -35,7 +43,7 @@ const FROZEN_ARTIFACTS = [
     originalSha256: '9020ccbd91acd691eccd3fdf568b9a90efbddf0a35d79f36ef1caba702fa0c07',
     currentSha256: 'e928945d7356bb9c71c258509f9dba6fabdb2887df37263e3deb5faefc0415fb'
   }
-] as const;
+];
 
 const PREVIEW_NODE_MODULES = [
   ...readdirSync(resolve('node_modules/@esbuild')).map((entry) => `@esbuild/${entry}`),
@@ -52,11 +60,6 @@ const PREVIEW_NODE_MODULES = [
 interface FreshCloneFixture {
   repoRoot: string;
   tempRoot: string;
-}
-
-interface FreezeReport {
-  truthSource?: { externalOriginalReferenceRoot?: unknown };
-  comparisons?: Array<{ label?: string; rightSha256?: string }>;
 }
 
 function copyFixturePath(repoRoot: string, relativePath: string): void {
@@ -104,26 +107,27 @@ function createFreshCloneFixture(nodeModulesTopology: 'physical' | 'symlink'): F
 }
 
 function runDefaultFreeze(fixture: FreshCloneFixture): {
-  report: FreezeReport;
   result: SpawnSyncReturns<string>;
+  indexSha256: string;
 } {
   const result = spawnSync('npm', ['run', 'preview:freeze-check'], {
     cwd: fixture.repoRoot,
     encoding: 'utf8',
     timeout: 120_000
   });
-  const report = JSON.parse(
-    readFileSync(join(fixture.repoRoot, '.tmp/preview-freeze-current/report.json'), 'utf8')
-  ) as FreezeReport;
+  const indexSha256 = createHash('sha256')
+    .update(
+      readFileSync(
+        join(fixture.repoRoot, '.tmp/preview-freeze-current/options-component-preview/index.js')
+      )
+    )
+    .digest('hex');
 
-  return { report, result };
+  return { result, indexSha256 };
 }
 
-function generatedIndexSha(report: FreezeReport): string | undefined {
-  return report.comparisons?.find(
-    (comparison) =>
-      comparison.label === 'original reference index.js vs current generated preview index.js'
-  )?.rightSha256;
+function usesOnlyTrackedDigestTruth(result: SpawnSyncReturns<string>): boolean {
+  return result.stdout.includes('Truth source: tracked frozen digests\n');
 }
 
 function dependencySourceLabel(fixture: FreshCloneFixture): string | undefined {
@@ -166,14 +170,14 @@ describe('preview freeze check', () => {
       const physicalRun = runDefaultFreeze(physical);
       const symlinkRun = runDefaultFreeze(symlink);
       const topologyEvidence = JSON.stringify({
-        physicalSha256: generatedIndexSha(physicalRun.report),
+        physicalSha256: physicalRun.indexSha256,
         physicalSourceLabel: dependencySourceLabel(physical),
-        symlinkSha256: generatedIndexSha(symlinkRun.report),
+        symlinkSha256: symlinkRun.indexSha256,
         symlinkSourceLabel: dependencySourceLabel(symlink)
       });
 
-      expect(physicalRun.report.truthSource?.externalOriginalReferenceRoot).toBeNull();
-      expect(symlinkRun.report.truthSource?.externalOriginalReferenceRoot).toBeNull();
+      expect(usesOnlyTrackedDigestTruth(physicalRun.result)).toBe(true);
+      expect(usesOnlyTrackedDigestTruth(symlinkRun.result)).toBe(true);
 
       expect(
         physicalRun.result.status,
@@ -183,7 +187,7 @@ describe('preview freeze check', () => {
         symlinkRun.result.status,
         `${topologyEvidence}\n${symlinkRun.result.stdout}\n${symlinkRun.result.stderr}`
       ).toBe(0);
-      expect(generatedIndexSha(physicalRun.report)).toBe(generatedIndexSha(symlinkRun.report));
+      expect(physicalRun.indexSha256).toBe(symlinkRun.indexSha256);
     } finally {
       rmSync(physical.tempRoot, { recursive: true, force: true });
       rmSync(symlink.tempRoot, { recursive: true, force: true });
