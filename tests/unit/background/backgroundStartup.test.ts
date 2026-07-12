@@ -157,4 +157,75 @@ describe('backgroundStartup', () => {
       restoreStoragePolicyProvider
     );
   });
+
+  it('exposes an exact in-process policy-prune handle without runtime self-messaging', async () => {
+    const result = {
+      expiredDrafts: 1,
+      excessDrafts: 2,
+      newlyOrphanedScreenshots: 3
+    };
+    const handleVideoScreenshotCacheMessage = vi.fn(async () => ({
+      success: true as const,
+      operation: 'pruneRestoreDataToCurrentPolicy' as const,
+      result
+    }));
+    createRuntimeMessageListenerDependenciesMock.mockReturnValueOnce(
+      asType<
+        ReturnType<
+          typeof import('../../../src/background/listeners/runtimeMessages').createRuntimeMessageListenerDependencies
+        >
+      >({ handleVideoScreenshotCacheMessage })
+    );
+    const { startBackgroundRuntime } = await import('../../../src/background/backgroundStartup');
+    const deps = createDependencies();
+
+    const runtime = startBackgroundRuntime(deps);
+
+    await expect(
+      runtime.pruneRestoreDataToCurrentPolicy('signout-prune:operation-1')
+    ).resolves.toEqual(result);
+    expect(handleVideoScreenshotCacheMessage).toHaveBeenCalledWith(
+      {
+        type: 'AIIOB_VIDEO_SCREENSHOT_CACHE',
+        operation: 'pruneRestoreDataToCurrentPolicy',
+        operationId: 'signout-prune:operation-1'
+      },
+      null
+    );
+    expect(deps.messaging.send).not.toHaveBeenCalled();
+  });
 });
+
+function createDependencies(): BackgroundStartupDependencies {
+  return {
+    action: { onClicked: vi.fn() },
+    contextMenus: {
+      create: vi.fn(),
+      update: vi.fn(),
+      removeAll: vi.fn(),
+      onClicked: vi.fn(),
+      onShown: vi.fn()
+    },
+    messaging: { addListener: vi.fn(), send: vi.fn(), sendToTab: vi.fn() },
+    runtime: {
+      onInstalled: vi.fn(),
+      onStartup: vi.fn(),
+      getURL: vi.fn(),
+      getBrowserTarget: vi.fn<() => 'chrome'>(() => 'chrome'),
+      openOptionsPage: vi.fn()
+    },
+    scripting: { executeScript: vi.fn() },
+    storage: asType<BackgroundStartupDependencies['storage']>({ sync: {}, local: {} }),
+    tabs: {
+      query: vi.fn(),
+      get: vi.fn(),
+      create: vi.fn(),
+      sendMessage: vi.fn(),
+      onActivated: vi.fn(),
+      onUpdated: vi.fn(),
+      onRemoved: vi.fn(),
+      remove: vi.fn(),
+      getCurrent: vi.fn()
+    }
+  };
+}
