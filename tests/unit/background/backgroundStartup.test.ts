@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { BackgroundStartupDependencies } from '../../../src/background/backgroundStartup';
 import { createExtendedRestoreCapabilityPolicy } from '../../../src/shared/capabilities/capabilityPolicy';
+import type { RestoreStorageMaintenanceResponse } from '../../../src/content/sessionDrafts/restoreStorageMaintenanceMessages';
 import { asType } from '../../utils/typeHelpers';
 
 const configureBackgroundDependencyStorageMock = vi.hoisted(() => vi.fn());
@@ -164,11 +165,13 @@ describe('backgroundStartup', () => {
       excessDrafts: 2,
       newlyOrphanedScreenshots: 3
     };
-    const handleVideoScreenshotCacheMessage = vi.fn(async () => ({
-      success: true as const,
-      operation: 'pruneRestoreDataToCurrentPolicy' as const,
-      result
-    }));
+    const handleVideoScreenshotCacheMessage = vi.fn(
+      async (): Promise<RestoreStorageMaintenanceResponse> => ({
+        success: true,
+        operation: 'pruneRestoreDataToCurrentPolicy',
+        result
+      })
+    );
     createRuntimeMessageListenerDependenciesMock.mockReturnValueOnce(
       asType<
         ReturnType<
