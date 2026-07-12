@@ -1,6 +1,7 @@
 /* @vitest-environment jsdom */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { setTimeout as hostDelay } from 'node:timers/promises';
 import type { StorageService } from '@platform/interfaces/storage';
 import { createMemoryStorageArea } from '@platform/preview/memoryStorage';
 import {
@@ -31,6 +32,7 @@ function createHarness(
   options: {
     sessionDraftStoragePolicy?: SessionDraftStoragePolicy;
     getSessionDraftStoragePolicy?: () => SessionDraftStoragePolicy;
+    sessionDraftSendHostDelayMs?: number;
   } = {}
 ) {
   document.body.innerHTML = '<main id="app">content</main>';
@@ -60,6 +62,9 @@ function createHarness(
     }
   );
   const sessionDraftSend = vi.fn(async (message: unknown) => {
+    if (options.sessionDraftSendHostDelayMs) {
+      await hostDelay(options.sessionDraftSendHostDelayMs);
+    }
     return backgroundHandler(message, { tabId: 7, windowId: 3, frameId: 0 });
   });
   const readerStart = vi.fn<ReaderSessionAdapter['start']>().mockResolvedValue(undefined);
@@ -220,11 +225,20 @@ async function waitForCall(
   mock: { mock: { calls: unknown[][] } },
   expectedCalls = 1
 ): Promise<void> {
-  for (let round = 0; round < 100; round += 1) {
+  const hostYieldMs = 10;
+  const maxHostWaitMs = 2_000;
+  const maxRounds = maxHostWaitMs / hostYieldMs;
+
+  for (let round = 0; round < maxRounds; round += 1) {
     if (mock.mock.calls.length >= expectedCalls) return;
     for (let index = 0; index < 8; index += 1) await Promise.resolve();
-    if (vi.isFakeTimers()) await vi.advanceTimersByTimeAsync(0);
-    else await new Promise((resolve) => window.setTimeout(resolve, 0));
+    if (vi.isFakeTimers()) {
+      await vi.advanceTimersByTimeAsync(0);
+      if (mock.mock.calls.length >= expectedCalls) return;
+      await hostDelay(hostYieldMs);
+    } else {
+      await new Promise((resolve) => window.setTimeout(resolve, 0));
+    }
   }
   throw new Error(`Expected ${expectedCalls} call(s), received ${mock.mock.calls.length}`);
 }
@@ -298,6 +312,7 @@ describe('sessionDraftAutoRestore', () => {
     vi.setSystemTime(new Date('2026-06-22T08:00:00Z'));
     const url = 'https://example.com/article';
     const harness = createHarness(url, {
+      sessionDraftSendHostDelayMs: 35,
       sessionDraftStoragePolicy: createSessionDraftStoragePolicy({
         retentionPolicy: {
           retentionMs: 96 * 60 * 60 * 1000,
@@ -473,6 +488,9 @@ describe('sessionDraftAutoRestore', () => {
     await harness.repository.save(createVideoDraftEnvelope(url));
 
     const stop = harness.start();
+    await waitForCall(harness.sessionDraftSend, 2);
+    await Promise.all(harness.sessionDraftSend.mock.results.map(({ value }) => value));
+    await flushAsyncWork();
     await vi.advanceTimersByTimeAsync(2_000);
     await flushAsyncWork();
     expect(harness.videoStart).not.toHaveBeenCalled();
