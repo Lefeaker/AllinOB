@@ -489,7 +489,9 @@ describe('sessionDraftAutoRestore', () => {
 
     const stop = harness.start();
     await waitForCall(harness.sessionDraftSend, 2);
-    await Promise.all(harness.sessionDraftSend.mock.results.map(({ value }) => value));
+    for (const result of harness.sessionDraftSend.mock.results) {
+      if (result.type === 'return') await result.value;
+    }
     await flushAsyncWork();
     await vi.advanceTimersByTimeAsync(2_000);
     await flushAsyncWork();
