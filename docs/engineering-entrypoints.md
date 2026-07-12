@@ -72,6 +72,11 @@
   - `static-style-and-locale` 保留 locale source alignment、Options CSS naming、hardcoded config guard 与 lint warning guard 的 hard gate 语义；`static-reporting-audits` 仅保留 report-only audit 的 per-step `continue-on-error`
   - `visual` 按 `chromium-desktop` / `chromium-tablet` / `chromium-mobile` matrix 拆分；Vitest E2E 与三组 browser E2E 拆成独立 job，失败报告 artifact 按 suite 命名
   - `package` job 通过 `needs: [static-preflight]` 提前启动，并继续使用 `npm run build:fast`，避免在 CI 后段通过 `npm run build` 重复触发完整 `quality`；测试、visual、release-surface 与静态拆分 job 仍应作为独立 required checks 参与合并判断
+- `npm run preview:freeze-check`
+  - preview freeze 的原始参考与当前生成结果继续由 tracked code truth 中的 exact SHA-256 守住；fresh clone 不需要 workspace 外 `future/**` 文件
+  - `scripts/build-preview.mjs` 对 preview bundle 启用 esbuild `preserveSymlinks`，依赖模块统一保留 checkout-local `node_modules/**` source labels；物理本地与软链 `node_modules` 拓扑生成相同 raw `index.js` bytes，不通过 freeze-check 后处理或 digest normalization 掩盖差异
+  - workspace 外原始 reference 存在时会额外交叉校验其 frozen original digest；不存在时 tracked digest 仍 fail closed，不会跳过 current `index.html` / `styles.css` / `index.js` exact digest 校验
+  - Stitch Secondary standalone 只验证本次 build 生成的文件存在且非空，不再依赖 developer-modified workspace copy；`--tracked-digests-only` 是无外部 reference 的可重复验真模式
 - `.github/workflows/release-firefox-amo.yml`
   - Firefox AMO 自动发布支持 tag `v*` 触发与 `workflow_dispatch` 手动触发；手动触发可选择 `listed` 或 `unlisted`，tag 触发默认 `listed`
   - Workflow 只读取 `contents: read` 权限，不写 GitHub release；发布凭据只来自 `WEB_EXT_API_KEY` / `WEB_EXT_API_SECRET` repository secrets，GA public config 只来自 `ZENDIO_GA_MEASUREMENT_ID` / `ZENDIO_GA_PROXY_ENDPOINT` secrets 与固定 `ZENDIO_GA_TRANSPORT_MODE=proxy`

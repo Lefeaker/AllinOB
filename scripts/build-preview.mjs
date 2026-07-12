@@ -52,7 +52,9 @@ function readOutputRoot() {
   const outdirFlagIndex = process.argv.indexOf('--outdir');
   const outdirFlag = process.argv.find((arg) => arg.startsWith('--outdir='));
   const configuredOutdir =
-    outdirFlagIndex >= 0 ? process.argv[outdirFlagIndex + 1] : outdirFlag?.slice('--outdir='.length);
+    outdirFlagIndex >= 0
+      ? process.argv[outdirFlagIndex + 1]
+      : outdirFlag?.slice('--outdir='.length);
 
   if (!configuredOutdir) {
     return defaultOutputRoot;
@@ -68,7 +70,9 @@ const outputRoot = readOutputRoot();
 async function resetOutputDirectory() {
   await mkdir(outputRoot, { recursive: true });
   const entries = await readdir(outputRoot);
-  await Promise.all(entries.map((entry) => rm(path.join(outputRoot, entry), { recursive: true, force: true })));
+  await Promise.all(
+    entries.map((entry) => rm(path.join(outputRoot, entry), { recursive: true, force: true }))
+  );
 }
 
 async function writeHtmlEntries() {
@@ -110,10 +114,7 @@ ${sharedHead}
 }
 
 async function copyStyles() {
-  await cp(
-    path.join(sourceRoot, 'styles/preview.css'),
-    path.join(outputRoot, 'styles.css')
-  );
+  await cp(path.join(sourceRoot, 'styles/preview.css'), path.join(outputRoot, 'styles.css'));
 }
 
 async function buildEntries() {
@@ -125,6 +126,7 @@ async function buildEntries() {
     platform: 'browser',
     charset: 'utf8',
     target: ['es2021'],
+    preserveSymlinks: true,
     sourcemap: false,
     minify: false
   });
@@ -187,11 +189,14 @@ function patchStandaloneOnboardingNavigation(scriptContent) {
           }
           ${target}`;
 
-  return scriptContent.includes(target) ? scriptContent.replace(target, replacement) : scriptContent;
+  return scriptContent.includes(target)
+    ? scriptContent.replace(target, replacement)
+    : scriptContent;
 }
 
 function patchStandaloneResourceOpen(scriptContent) {
-  const target = 'window.open(meta.href ?? `./${resourceId}.html`, "_blank", "noopener,noreferrer");';
+  const target =
+    'window.open(meta.href ?? `./${resourceId}.html`, "_blank", "noopener,noreferrer");';
   const replacement = `if (resourceId === "onboarding" && window.__AI2OB_PREVIEW_ONBOARDING_HTML__) {
         const popup = window.open("", "_blank");
         if (popup) {
@@ -203,7 +208,9 @@ function patchStandaloneResourceOpen(scriptContent) {
       }
       ${target}`;
 
-  return scriptContent.includes(target) ? scriptContent.replace(target, replacement) : scriptContent;
+  return scriptContent.includes(target)
+    ? scriptContent.replace(target, replacement)
+    : scriptContent;
 }
 
 function normalizePreviewBundleSourceLabels(scriptContent) {
