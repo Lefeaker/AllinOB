@@ -16,6 +16,7 @@ const createRuntimeMessageListenerDependenciesMock = vi.hoisted(() =>
 const registerRuntimeMessageListenerMock = vi.hoisted(() => vi.fn());
 const ensureUsageStatsInitializedMock = vi.hoisted(() => vi.fn(() => Promise.resolve(undefined)));
 const resolveRepositoryMock = vi.hoisted(() => vi.fn(() => ({ onChange: vi.fn() })));
+const messagingSendMock = vi.hoisted(() => vi.fn());
 
 vi.mock('../../../src/background/bootstrap', () => ({
   configureBackgroundDependencyStorage: configureBackgroundDependencyStorageMock,
@@ -195,7 +196,7 @@ describe('backgroundStartup', () => {
       },
       null
     );
-    expect(deps.messaging.send).not.toHaveBeenCalled();
+    expect(messagingSendMock).not.toHaveBeenCalled();
   });
 });
 
@@ -209,7 +210,7 @@ function createDependencies(): BackgroundStartupDependencies {
       onClicked: vi.fn(),
       onShown: vi.fn()
     },
-    messaging: { addListener: vi.fn(), send: vi.fn(), sendToTab: vi.fn() },
+    messaging: { addListener: vi.fn(), send: messagingSendMock, sendToTab: vi.fn() },
     runtime: {
       onInstalled: vi.fn(),
       onStartup: vi.fn(),
