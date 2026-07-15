@@ -177,4 +177,68 @@ describe('release archive audit', () => {
       rmSync(dir, { recursive: true, force: true });
     }
   });
+
+  it('fails when the packaged archive contains machine-local text content', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'aiiinob-release-archive-test-'));
+    const archive = writeZipArchive(
+      dir,
+      'machine-local.zip',
+      baseArchiveEntries({
+        'styles/preview.css': '/* archived from /Users/alice/work/zendio */'
+      })
+    );
+
+    try {
+      const result = runAudit(archive);
+
+      expect(result.status).not.toBe(0);
+      expect(result.stdout + result.stderr).toContain('Forbidden Machine-Local Content');
+      expect(result.stdout + result.stderr).toContain('macos-user-home');
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('fails when raw JSON in the packaged archive uses escaped-solidus machine paths', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'aiiinob-release-archive-test-'));
+    const archive = writeZipArchive(
+      dir,
+      'escaped-machine-local.zip',
+      baseArchiveEntries({
+        'config/settings.json': '{"source":"\\/Users\\/alice\\/work\\/zendio"}'
+      })
+    );
+
+    try {
+      const result = runAudit(archive);
+
+      expect(result.status).not.toBe(0);
+      expect(result.stdout + result.stderr).toContain('Forbidden Machine-Local Content');
+      expect(result.stdout + result.stderr).toContain('macos-user-home');
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('fails when the packaged archive contains an inline base64 source map', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'aiiinob-release-archive-test-'));
+    const archive = writeZipArchive(
+      dir,
+      'inline-source-map.zip',
+      baseArchiveEntries({
+        'chunks/inline-map.js':
+          'const value = 1;\n//# sourceMappingURL=data:application/json;base64,e30='
+      })
+    );
+
+    try {
+      const result = runAudit(archive);
+
+      expect(result.status).not.toBe(0);
+      expect(result.stdout + result.stderr).toContain('Forbidden Inline Source Maps');
+      expect(result.stdout + result.stderr).toContain('inline-source-map-data-url');
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
 });
