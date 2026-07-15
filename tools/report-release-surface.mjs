@@ -29,7 +29,55 @@ const FORBIDDEN_SECRET_CONTENT_PATTERNS = [
     pattern: /\b(?:GA4_API_SECRET|ZENDIO_GA_API_SECRET|AIIINOB_GA_API_SECRET|api_secret)\b/
   }
 ];
+const FORBIDDEN_MACHINE_LOCAL_CONTENT_PATTERNS = [
+  {
+    name: 'macos-user-home',
+    pattern: /(?:^|[^A-Za-z0-9_./\\:-])\/Users\/[^/\\\s"'`<>]+(?:\/[^\s"'`<>]*)?/m
+  },
+  {
+    name: 'linux-user-home',
+    pattern: /(?:^|[^A-Za-z0-9_./\\:-])\/home\/[^/\\\s"'`<>]+(?:\/[^\s"'`<>]*)?/m
+  },
+  {
+    name: 'linux-root-home',
+    pattern: /(?:^|[^A-Za-z0-9_./\\:-])\/root\/[^/\\\s"'`<>]+(?:\/[^\s"'`<>]*)?/m
+  },
+  {
+    name: 'windows-user-home-backslash',
+    pattern: /(?:^|[^A-Za-z0-9_./\\-])[A-Za-z]:\\+Users[\\/]+[^/\\\s"'`<>]+(?:[\\/]+[^\s"'`<>]*)?/im
+  },
+  {
+    name: 'windows-user-home-slash',
+    pattern: /(?:^|[^A-Za-z0-9_./\\-])[A-Za-z]:\/+Users[\\/]+[^/\\\s"'`<>]+(?:[\\/]+[^\s"'`<>]*)?/im
+  }
+];
 const SCANNED_CONTENT_EXTENSIONS = new Set(['.css', '.html', '.js', '.json']);
+const MACHINE_LOCAL_TEXT_EXTENSIONS = new Set([
+  '.cjs',
+  '.css',
+  '.html',
+  '.js',
+  '.json',
+  '.map',
+  '.md',
+  '.mjs',
+  '.svg',
+  '.txt',
+  '.xml',
+  '.yaml',
+  '.yml'
+]);
+const JSON_MACHINE_LOCAL_EXTENSIONS = new Set(['.json', '.map']);
+const INLINE_SOURCE_MAP_EXTENSIONS = new Set(['.cjs', '.css', '.html', '.js', '.mjs']);
+const WEB_URL_RE = /\b(?:https?|wss?):\/\/[^\s"'`<>]+/giu;
+const WINDOWS_LOCAL_SCHEME_PREFIX_RE =
+  /\b(?:file:(?:\/\/[^/\\\s"'`<>]+)?|(?:webpack|vite):)\/+(?=[A-Za-z]:[\\/]+Users[\\/])/giu;
+const POSIX_LOCAL_SCHEME_PREFIX_RE =
+  /\b(?:file:(?:\/\/[^/\\\s"'`<>]+)?|(?:webpack|vite):)\/+(?=(?:Users|home|root)\/)/giu;
+const INLINE_SOURCE_MAP_PATTERN = {
+  name: 'inline-source-map-data-url',
+  pattern: /\bsourceMappingURL\s*=\s*data:/iu
+};
 
 function parseArgs(args) {
   const parsed = {
@@ -193,9 +241,104 @@ function scanForbiddenSecretContent(path, content) {
   );
 }
 
+function shouldScanMachineLocalContent(path) {
+  return MACHINE_LOCAL_TEXT_EXTENSIONS.has(extname(path).toLowerCase());
+}
+
+function decodeAsciiEscape(match, hex) {
+  const codePoint = Number.parseInt(hex, 16);
+  return codePoint <= 0x7f ? String.fromCodePoint(codePoint) : match;
+}
+
+function decodePercentAsciiEscape(match, hex) {
+  const codePoint = Number.parseInt(hex, 16);
+  const isWebUrlDelimiter =
+    codePoint <= 0x20 ||
+    codePoint === 0x22 ||
+    codePoint === 0x27 ||
+    codePoint === 0x3c ||
+    codePoint === 0x3e ||
+    codePoint === 0x60 ||
+    codePoint === 0x7f;
+  return codePoint <= 0x7f && !isWebUrlDelimiter ? String.fromCodePoint(codePoint) : match;
+}
+
+function canonicalizeCodeEscapes(content) {
+  return content
+    .replace(/\\u\{([0-9a-f]{1,6})\}/giu, decodeAsciiEscape)
+    .replace(/\\u([0-9a-f]{4})/giu, decodeAsciiEscape)
+    .replace(/\\x([0-9a-f]{2})/giu, decodeAsciiEscape)
+    .replaceAll('\\/', '/');
+}
+
+function canonicalizePercentEscapes(content) {
+  return content.replace(/%([0-9a-f]{2})/giu, decodePercentAsciiEscape);
+}
+
+function collectDecodedJsonStrings(path, content) {
+  if (!JSON_MACHINE_LOCAL_EXTENSIONS.has(extname(path).toLowerCase())) {
+    return [];
+  }
+
+  try {
+    const strings = [];
+    const pending = [JSON.parse(content)];
+    while (pending.length > 0) {
+      const value = pending.pop();
+      if (typeof value === 'string') {
+        strings.push(value);
+      } else if (Array.isArray(value)) {
+        pending.push(...value);
+      } else if (value && typeof value === 'object') {
+        for (const [key, child] of Object.entries(value)) {
+          strings.push(key);
+          pending.push(child);
+        }
+      }
+    }
+    return strings;
+  } catch {
+    return [];
+  }
+}
+
+function canonicalizeMachineLocalContent(path, content) {
+  const decodedJsonStrings = collectDecodedJsonStrings(path, content);
+  return canonicalizeCodeEscapes([content, ...decodedJsonStrings].join('\n'));
+}
+
+function scanForbiddenMachineLocalContent(path, content) {
+  if (!shouldScanMachineLocalContent(path)) {
+    return [];
+  }
+
+  const canonicalContent = canonicalizeMachineLocalContent(path, content);
+  const contentWithoutExplicitWebUrls = canonicalContent.replace(WEB_URL_RE, '');
+  const contentWithoutWebUrls = canonicalizePercentEscapes(contentWithoutExplicitWebUrls)
+    .replace(WEB_URL_RE, '')
+    .replace(WINDOWS_LOCAL_SCHEME_PREFIX_RE, '')
+    .replace(POSIX_LOCAL_SCHEME_PREFIX_RE, '/');
+  return FORBIDDEN_MACHINE_LOCAL_CONTENT_PATTERNS.filter(({ pattern }) =>
+    pattern.test(contentWithoutWebUrls)
+  ).map(({ name }) => ({ path, pattern: name }));
+}
+
+function scanForbiddenInlineSourceMapContent(path, content) {
+  if (!INLINE_SOURCE_MAP_EXTENSIONS.has(extname(path).toLowerCase())) {
+    return [];
+  }
+  return INLINE_SOURCE_MAP_PATTERN.pattern.test(content)
+    ? [{ path, pattern: INLINE_SOURCE_MAP_PATTERN.name }]
+    : [];
+}
+
 function shouldReadArchiveEntryContent(path) {
   const normalized = normalizeManifestPath(path);
-  return shouldScanContent(normalized) || shouldScanSecretContent(normalized);
+  return (
+    shouldScanContent(normalized) ||
+    shouldScanSecretContent(normalized) ||
+    shouldScanMachineLocalContent(normalized)
+  );
 }
 
 function parseZipEntries(archivePath) {
@@ -268,7 +411,7 @@ function readZipEntryContent(
   if (compressionMethod === 8) {
     return inflateRawSync(compressed).toString('utf8');
   }
-  return null;
+  throw new Error(`Unsupported ZIP compression method ${compressionMethod} for ${path}`);
 }
 
 function buildReport({ distDir, archives }) {
@@ -280,6 +423,8 @@ function buildReport({ distDir, archives }) {
       files: [],
       manifestReferences: [],
       archives: [],
+      forbiddenMachineLocalDistContent: [],
+      forbiddenInlineSourceMapDistContent: [],
       failures: [`dist directory does not exist: ${distDir}`]
     };
   }
@@ -292,6 +437,8 @@ function buildReport({ distDir, archives }) {
       files: [],
       manifestReferences: [],
       archives: [],
+      forbiddenMachineLocalDistContent: [],
+      forbiddenInlineSourceMapDistContent: [],
       failures: [`manifest is missing: ${manifestPath}`]
     };
   }
@@ -317,6 +464,16 @@ function buildReport({ distDir, archives }) {
       ? scanForbiddenSecretContent(file, readFileSync(join(distDir, file), 'utf8'))
       : []
   );
+  const forbiddenMachineLocalDistContent = files.flatMap((file) =>
+    shouldScanMachineLocalContent(file)
+      ? scanForbiddenMachineLocalContent(file, readFileSync(join(distDir, file), 'utf8'))
+      : []
+  );
+  const forbiddenInlineSourceMapDistContent = files.flatMap((file) =>
+    shouldScanMachineLocalContent(file)
+      ? scanForbiddenInlineSourceMapContent(file, readFileSync(join(distDir, file), 'utf8'))
+      : []
+  );
 
   failures.push(
     ...missingReferences.map(
@@ -335,6 +492,12 @@ function buildReport({ distDir, archives }) {
     ),
     ...forbiddenSecretDistContent.map(
       ({ path, pattern }) => `forbidden secret-like content in build/dist: ${path} (${pattern})`
+    ),
+    ...forbiddenMachineLocalDistContent.map(
+      ({ path, pattern }) => `forbidden machine-local content in build/dist: ${path} (${pattern})`
+    ),
+    ...forbiddenInlineSourceMapDistContent.map(
+      ({ path, pattern }) => `forbidden inline source map in build/dist: ${path} (${pattern})`
     )
   );
 
@@ -357,6 +520,16 @@ function buildReport({ distDir, archives }) {
     const forbiddenSecretContent = archiveEntries.flatMap((entry) =>
       typeof entry.content === 'string' ? scanForbiddenSecretContent(entry.path, entry.content) : []
     );
+    const forbiddenMachineLocalContent = archiveEntries.flatMap((entry) =>
+      typeof entry.content === 'string'
+        ? scanForbiddenMachineLocalContent(entry.path, entry.content)
+        : []
+    );
+    const forbiddenInlineSourceMapContent = archiveEntries.flatMap((entry) =>
+      typeof entry.content === 'string'
+        ? scanForbiddenInlineSourceMapContent(entry.path, entry.content)
+        : []
+    );
     failures.push(
       ...forbiddenEntries.map(
         (entry) => `forbidden harness member in archive ${archivePath}: ${entry}`
@@ -374,6 +547,14 @@ function buildReport({ distDir, archives }) {
       ...forbiddenSecretContent.map(
         ({ path, pattern }) =>
           `forbidden secret-like content in archive ${archivePath}: ${path} (${pattern})`
+      ),
+      ...forbiddenMachineLocalContent.map(
+        ({ path, pattern }) =>
+          `forbidden machine-local content in archive ${archivePath}: ${path} (${pattern})`
+      ),
+      ...forbiddenInlineSourceMapContent.map(
+        ({ path, pattern }) =>
+          `forbidden inline source map in archive ${archivePath}: ${path} (${pattern})`
       )
     );
     return {
@@ -383,7 +564,9 @@ function buildReport({ distDir, archives }) {
       forbiddenPseudoLocaleEntries,
       forbiddenPseudoLocaleContent,
       forbiddenSecretContent,
-      forbiddenSecretEntries
+      forbiddenSecretEntries,
+      forbiddenMachineLocalContent,
+      forbiddenInlineSourceMapContent
     };
   });
 
@@ -397,6 +580,8 @@ function buildReport({ distDir, archives }) {
     forbiddenPseudoLocaleDistContent,
     forbiddenSecretDistContent,
     forbiddenSecretDistFiles,
+    forbiddenMachineLocalDistContent,
+    forbiddenInlineSourceMapDistContent,
     manifestReferences,
     archives: archiveReports,
     failures
@@ -435,6 +620,44 @@ function formatReport(report) {
     if (archive.forbiddenEntries.length) {
       for (const entry of archive.forbiddenEntries) {
         lines.push(`- ${archive.path}: \`${entry}\``);
+      }
+    } else {
+      lines.push(`- ${archive.path}: none`);
+    }
+  }
+
+  lines.push('', '## Forbidden Machine-Local Content', '');
+  if (report.forbiddenMachineLocalDistContent?.length) {
+    for (const finding of report.forbiddenMachineLocalDistContent) {
+      lines.push(`- build/dist content: \`${finding.path}\` (${finding.pattern})`);
+    }
+  } else {
+    lines.push('- build/dist: none');
+  }
+
+  for (const archive of report.archives ?? []) {
+    if (archive.forbiddenMachineLocalContent.length) {
+      for (const finding of archive.forbiddenMachineLocalContent) {
+        lines.push(`- ${archive.path} content: \`${finding.path}\` (${finding.pattern})`);
+      }
+    } else {
+      lines.push(`- ${archive.path}: none`);
+    }
+  }
+
+  lines.push('', '## Forbidden Inline Source Maps', '');
+  if (report.forbiddenInlineSourceMapDistContent?.length) {
+    for (const finding of report.forbiddenInlineSourceMapDistContent) {
+      lines.push(`- build/dist content: \`${finding.path}\` (${finding.pattern})`);
+    }
+  } else {
+    lines.push('- build/dist: none');
+  }
+
+  for (const archive of report.archives ?? []) {
+    if (archive.forbiddenInlineSourceMapContent.length) {
+      for (const finding of archive.forbiddenInlineSourceMapContent) {
+        lines.push(`- ${archive.path} content: \`${finding.path}\` (${finding.pattern})`);
       }
     } else {
       lines.push(`- ${archive.path}: none`);

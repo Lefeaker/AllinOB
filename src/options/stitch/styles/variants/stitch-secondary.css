@@ -1,13 +1,12 @@
 /*
  * Stitch Secondary bridge.
  *
- * The immutable visual target is the original component preview at
- * /Users/mac/Documents/Dev/AI2OB_Plg/future/options-component-preview 2.
+ * The immutable visual target is the archived Stitch Secondary component preview.
  * Runtime and production pages still load this file as the extension-owned
  * Stitch Secondary hook, but it must not override the base Stitch tokens or
  * component rules from stitch.css.
  */
-html[data-preview-skin="stitch-secondary"],
-.stitch-runtime-surface[data-preview-skin="stitch-secondary"] {
+html[data-preview-skin='stitch-secondary'],
+.stitch-runtime-surface[data-preview-skin='stitch-secondary'] {
   --stitch-secondary-bridge: 1;
 }
