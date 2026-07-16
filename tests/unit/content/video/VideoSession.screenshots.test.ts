@@ -1651,6 +1651,170 @@ describe('VideoSession screenshots', () => {
     sessionApi.cleanup();
   });
 
+  it.each([
+    {
+      name: 'screenshot persistence arrives before the capture edit',
+      arrivalOrder: 'screenshot-first'
+    },
+    {
+      name: 'capture edit arrives before screenshot persistence',
+      arrivalOrder: 'mutation-first'
+    }
+  ] as const)('serializes draft writes when $name', async ({ arrivalOrder }) => {
+    const deps = createDependencies();
+    const screenshotSave = createDeferred<{
+      status: 'saved';
+      ref: VideoScreenshotCacheRef;
+    }>();
+    const saveSpy: VideoScreenshotCacheSaveMock = vi.fn(
+      (): Promise<VideoScreenshotCacheSaveResult> => screenshotSave.promise
+    );
+    deps.screenshotCacheRepository = createScreenshotCacheRepositoryMock({
+      save: saveSpy
+    });
+    const view = createView();
+    let mountedCallbacks: VideoPanelCallbacks | null = null;
+    deps.viewFactory.createView = vi.fn((callbacks: VideoPanelCallbacks) => {
+      mountedCallbacks = callbacks;
+      return view;
+    });
+    const session = new VideoSession(document, deps);
+    const sessionApi = toSessionTestApi(session);
+    const screenshotBlob = new Blob(['serialized-frame'], { type: 'image/jpeg' });
+    const canvas = document.createElement('canvas');
+    const drawImage = vi.fn();
+    const screenshotCompletion: { callback: BlobCallback | null } = { callback: null };
+    const transactionWriteGate = createDeferred<void>();
+    const toBlob = vi.fn((callback: BlobCallback) => {
+      if (arrivalOrder === 'screenshot-first') {
+        callback(screenshotBlob);
+        return;
+      }
+      screenshotCompletion.callback = callback;
+    });
+    const toDataURL = vi.fn();
+    const createElementSpy = vi.spyOn(document, 'createElement').mockImplementation((tagName) => {
+      if (tagName.toLowerCase() === 'canvas') {
+        Object.defineProperty(canvas, 'getContext', {
+          value: vi.fn(() => ({ drawImage })),
+          configurable: true
+        });
+        Object.defineProperty(canvas, 'toBlob', {
+          value: toBlob,
+          configurable: true
+        });
+        Object.defineProperty(canvas, 'toDataURL', {
+          value: toDataURL,
+          configurable: true
+        });
+        return canvas;
+      }
+      return Document.prototype.createElement.call(document, tagName);
+    });
+
+    try {
+      await session.start();
+      const video = requireVideoElement();
+      Object.defineProperty(video, 'currentTime', { value: 42, configurable: true });
+      Object.defineProperty(video, 'videoWidth', { value: 640, configurable: true });
+      Object.defineProperty(video, 'videoHeight', { value: 360, configurable: true });
+
+      await session.addCurrentTimestamp('button', {
+        comment: 'original note',
+        captureScreenshot: true,
+        beginEditing: false
+      });
+      await waitForMockCalls(toBlob);
+
+      const capture = sessionApi.state.captures[0];
+      if (!capture || capture.kind !== 'timestamp') {
+        throw new Error('expected timestamp capture with screenshot preparation');
+      }
+      const savedRef = createScreenshotCacheRefFixture(capture.id, {
+        id: `serialized-shot-${arrivalOrder}`,
+        byteLength: screenshotBlob.size
+      });
+      const transactionWriteStarted = createDeferred<void>();
+      const setManyMock = vi.mocked(deps.storage.local.setMany);
+      const writeToStorage = setManyMock.getMockImplementation();
+      if (!writeToStorage) {
+        throw new Error('expected direct draft storage implementation');
+      }
+      setManyMock.mockImplementation(async (values) => {
+        const serialized = JSON.stringify(values);
+        if (serialized.includes('serialized edit') && !serialized.includes(savedRef.key)) {
+          transactionWriteStarted.resolve();
+          await transactionWriteGate.promise;
+        }
+        return writeToStorage(values);
+      });
+
+      if (arrivalOrder === 'screenshot-first') {
+        await waitForMockCalls(saveSpy);
+      }
+
+      const editPromise = requirePromise(
+        requireMountedPanelCallbacks(mountedCallbacks).onSubmitCaptureEdit(
+          capture.id,
+          'serialized edit'
+        )
+      );
+
+      if (arrivalOrder === 'mutation-first') {
+        await transactionWriteStarted.promise;
+        const finishScreenshot = screenshotCompletion.callback;
+        if (!finishScreenshot) {
+          throw new Error('expected deferred screenshot preparation callback');
+        }
+        screenshotCompletion.callback = null;
+        finishScreenshot(screenshotBlob);
+      } else {
+        await flushMutationWork();
+      }
+
+      screenshotSave.resolve({ status: 'saved', ref: savedRef });
+
+      if (arrivalOrder === 'screenshot-first') {
+        let durableWithRef = await readVideoDraftCandidateWithScreenshotRef(deps, capture.id);
+        for (let index = 0; index < 20 && !durableWithRef; index += 1) {
+          await flushMutationWork();
+          durableWithRef = await readVideoDraftCandidateWithScreenshotRef(deps, capture.id);
+        }
+        expect(durableWithRef).not.toBeNull();
+      } else {
+        for (let index = 0; index < 20; index += 1) {
+          await flushMutationWork();
+        }
+      }
+
+      transactionWriteGate.resolve();
+      await editPromise;
+
+      let durable = await readVideoDraftCandidateWithScreenshotRef(deps, capture.id);
+      for (let index = 0; index < 20 && !durable; index += 1) {
+        await flushMutationWork();
+        durable = await readVideoDraftCandidateWithScreenshotRef(deps, capture.id);
+      }
+      const durableCapture = readVideoDraftPayload(durable)?.captures[0];
+      expect(durableCapture).toMatchObject({
+        kind: 'timestamp',
+        screenshotRequested: true,
+        screenshotRef: savedRef
+      });
+      expect(await listVideoDraftCandidates(deps)).toHaveLength(1);
+      expect(toDataURL).not.toHaveBeenCalled();
+    } finally {
+      transactionWriteGate.resolve();
+      screenshotCompletion.callback?.(null);
+      screenshotSave.resolve({
+        status: 'saved',
+        ref: createScreenshotCacheRefFixture('cleanup')
+      });
+      createElementSpy.mockRestore();
+      sessionApi.cleanup();
+    }
+  });
+
   it('writes through prepared screenshots asynchronously, assigns screenshot refs after save, and schedules draft persistence', async () => {
     const deps = createDependencies();
     const repository = createSessionDraftRepository(deps.storage.local);
