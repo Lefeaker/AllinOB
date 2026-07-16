@@ -390,25 +390,27 @@ export class VideoSession {
     capture: VideoTimestampCapture,
     screenshot: NonNullable<VideoTimestampCapture['screenshot']>
   ): Promise<void> {
-    const persistPreparedScreenshotCache = this.persistPreparedScreenshotCache;
-    if (!persistPreparedScreenshotCache) {
-      return;
-    }
+    return this.mutationCoordinator.runExclusive(async () => {
+      const persistPreparedScreenshotCache = this.persistPreparedScreenshotCache;
+      if (!persistPreparedScreenshotCache) {
+        return;
+      }
 
-    let saveResult;
-    try {
-      saveResult = await persistPreparedScreenshotCache(capture, screenshot);
-    } catch (error) {
-      console.warn('[VideoSession] Failed to persist prepared screenshot:', error);
-      return;
-    }
-    if (saveResult.status !== 'saved') {
-      console.debug('[VideoSession] Skipped prepared screenshot cache persistence:', saveResult);
-      return;
-    }
+      let saveResult;
+      try {
+        saveResult = await persistPreparedScreenshotCache(capture, screenshot);
+      } catch (error) {
+        console.warn('[VideoSession] Failed to persist prepared screenshot:', error);
+        return;
+      }
+      if (saveResult.status !== 'saved') {
+        console.debug('[VideoSession] Skipped prepared screenshot cache persistence:', saveResult);
+        return;
+      }
 
-    emitVideoUsageEvent(this.dependencies, 'video_screenshot_captured', {
-      screenshot_count_bucket: bucketCount(this.countRequestedScreenshots())
+      emitVideoUsageEvent(this.dependencies, 'video_screenshot_captured', {
+        screenshot_count_bucket: bucketCount(this.countRequestedScreenshots())
+      });
     });
   }
 

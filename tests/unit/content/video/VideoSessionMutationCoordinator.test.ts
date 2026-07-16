@@ -89,6 +89,94 @@ describe('VideoSessionMutationCoordinator', () => {
     expect(state.saving).toBe(false);
   });
 
+  it('queues capture mutations behind an in-flight exclusive task', async () => {
+    const state = { saving: false };
+    const screenshotGate = createDeferred<void>();
+    const events: string[] = [];
+    const coordinator = new VideoSessionMutationCoordinator(state);
+
+    const screenshot = coordinator.runExclusive(async () => {
+      events.push('screenshot:start');
+      await screenshotGate.promise;
+      events.push('screenshot:end');
+    });
+    const mutation = coordinator.runCaptureMutation({
+      apply: () => {
+        events.push('mutation:apply');
+        return null;
+      },
+      save: (): Promise<'ready'> => Promise.resolve('ready'),
+      rollback: vi.fn()
+    });
+
+    await flushMicrotasks();
+
+    expect(events).toEqual(['screenshot:start']);
+    expect(state.saving).toBe(true);
+
+    screenshotGate.resolve();
+    await Promise.all([screenshot, mutation]);
+
+    expect(events).toEqual(['screenshot:start', 'screenshot:end', 'mutation:apply']);
+    expect(state.saving).toBe(false);
+  });
+
+  it('queues exclusive tasks behind an in-flight capture mutation', async () => {
+    const state = { saving: false };
+    const mutationGate = createDeferred<'ready'>();
+    const events: string[] = [];
+    const coordinator = new VideoSessionMutationCoordinator(state);
+
+    const mutation = coordinator.runCaptureMutation({
+      apply: () => {
+        events.push('mutation:apply');
+        return null;
+      },
+      save: () => mutationGate.promise,
+      rollback: vi.fn()
+    });
+    const screenshot = coordinator.runExclusive(async () => {
+      events.push('screenshot:start');
+      events.push('screenshot:end');
+    });
+
+    await flushMicrotasks();
+
+    expect(events).toEqual(['mutation:apply']);
+    expect(state.saving).toBe(true);
+
+    mutationGate.resolve('ready');
+    await Promise.all([mutation, screenshot]);
+
+    expect(events).toEqual(['mutation:apply', 'screenshot:start', 'screenshot:end']);
+    expect(state.saving).toBe(false);
+  });
+
+  it('continues queued capture mutations after an exclusive task rejects', async () => {
+    const state = { saving: false };
+    const events: string[] = [];
+    const coordinator = new VideoSessionMutationCoordinator(state);
+
+    const screenshot = coordinator.runExclusive(async () => {
+      events.push('screenshot:start');
+      throw new Error('screenshot failed');
+    });
+    const mutation = coordinator.runCaptureMutation({
+      apply: () => {
+        events.push('mutation:apply');
+        return null;
+      },
+      save: (): Promise<'ready'> => Promise.resolve('ready'),
+      rollback: vi.fn()
+    });
+
+    await expect(screenshot).rejects.toThrow('screenshot failed');
+    await expect(mutation).resolves.toBe(true);
+
+    expect(events).toEqual(['screenshot:start', 'mutation:apply']);
+    expect(state.saving).toBe(false);
+  });
+
   it.each([
     {
       label: 'success',
