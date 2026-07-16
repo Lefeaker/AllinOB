@@ -105,7 +105,7 @@ describe('VideoSessionMutationCoordinator', () => {
         events.push('mutation:apply');
         return null;
       },
-      save: () => Promise.resolve('ready' as const),
+      save: (): Promise<'ready'> => Promise.resolve('ready'),
       rollback: vi.fn()
     });
 
@@ -166,7 +166,7 @@ describe('VideoSessionMutationCoordinator', () => {
         events.push('mutation:apply');
         return null;
       },
-      save: () => Promise.resolve('ready' as const),
+      save: (): Promise<'ready'> => Promise.resolve('ready'),
       rollback: vi.fn()
     });
 

@@ -54,6 +54,20 @@ import {
 
 const { exportMock, loadStoredCaptureDataMock } = getVideoSessionHarnessMocks();
 
+const draftWriteCases: Array<{
+  name: string;
+  arrivalOrder: 'screenshot-first' | 'mutation-first';
+}> = [
+  {
+    name: 'screenshot persistence arrives before the capture edit',
+    arrivalOrder: 'screenshot-first'
+  },
+  {
+    name: 'capture edit arrives before screenshot persistence',
+    arrivalOrder: 'mutation-first'
+  }
+];
+
 describe('VideoSession screenshots', () => {
   beforeEach(() => {
     document.body.innerHTML = '<h1>Video Title</h1><video></video>';
@@ -1651,16 +1665,7 @@ describe('VideoSession screenshots', () => {
     sessionApi.cleanup();
   });
 
-  it.each([
-    {
-      name: 'screenshot persistence arrives before the capture edit',
-      arrivalOrder: 'screenshot-first'
-    },
-    {
-      name: 'capture edit arrives before screenshot persistence',
-      arrivalOrder: 'mutation-first'
-    }
-  ] as const)('serializes draft writes when $name', async ({ arrivalOrder }) => {
+  it.each(draftWriteCases)('serializes draft writes when $name', async ({ arrivalOrder }) => {
     const deps = createDependencies();
     const screenshotSave = createDeferred<{
       status: 'saved';
