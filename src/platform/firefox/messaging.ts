@@ -16,9 +16,56 @@ function mapSender(sender: browser.runtime.MessageSender): MessageSenderInfo {
   };
 }
 
-function isPromise<T>(value: unknown): value is Promise<T> {
-  return Boolean(value && typeof (value as Promise<T>).then === 'function');
-}
+const messageListeners = new Set<MessageListener>();
+let registeredFirefoxApi: typeof browser | undefined;
+
+const nativeMessageListener: Parameters<typeof browser.runtime.onMessage.addListener>[0] = (
+  message,
+  sender,
+  sendResponse
+) => {
+  const listeners = [...messageListeners];
+  const senderInfo = mapSender(sender);
+  let pending = listeners.length;
+  let completed = false;
+
+  const complete = (response: unknown): void => {
+    if (completed) {
+      return;
+    }
+    completed = true;
+    sendResponse(response);
+  };
+
+  const completeOneWithoutResponse = (): void => {
+    if (completed) {
+      return;
+    }
+    pending -= 1;
+    if (pending === 0) {
+      complete(undefined);
+    }
+  };
+
+  if (pending === 0) {
+    complete(undefined);
+    return true;
+  }
+
+  for (const listener of listeners) {
+    Promise.resolve()
+      .then(() => listener(message, senderInfo))
+      .then((response) => {
+        if (response === undefined) {
+          completeOneWithoutResponse();
+          return;
+        }
+        complete(response);
+      }, completeOneWithoutResponse);
+  }
+
+  return true;
+};
 
 export const firefoxMessagingService: MessagingService = {
   async send<TResult = unknown>(message: unknown): Promise<TResult> {
@@ -39,30 +86,24 @@ export const firefoxMessagingService: MessagingService = {
 
   addListener(listener: MessageListener): () => void {
     const firefoxApi = ensureFirefox();
-    const wrapped: Parameters<typeof firefoxApi.runtime.onMessage.addListener>[0] = (
-      message,
-      sender,
-      sendResponse
-    ) => {
-      const result = listener(message, mapSender(sender));
-      if (isPromise(result)) {
-        result
-          .then((value) => {
-            if (value !== undefined) {
-              sendResponse(value);
-            }
-          })
-          .catch(() => {
-            // swallow listener errors to avoid disconnecting runtime
-          });
-        return true;
+    messageListeners.add(listener);
+    if (registeredFirefoxApi === undefined) {
+      firefoxApi.runtime.onMessage.addListener(nativeMessageListener);
+      registeredFirefoxApi = firefoxApi;
+    }
+
+    let disposed = false;
+    return () => {
+      if (disposed) {
+        return;
       }
-      if (result !== undefined) {
-        sendResponse(result);
+      disposed = true;
+      messageListeners.delete(listener);
+      if (messageListeners.size === 0 && registeredFirefoxApi !== undefined) {
+        const api = registeredFirefoxApi;
+        registeredFirefoxApi = undefined;
+        api.runtime.onMessage.removeListener(nativeMessageListener);
       }
-      return false;
     };
-    firefoxApi.runtime.onMessage.addListener(wrapped);
-    return () => firefoxApi.runtime.onMessage.removeListener(wrapped);
   }
 };
