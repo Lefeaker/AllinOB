@@ -94,6 +94,9 @@
 - Node.js: `.nvmrc` pins `20.20.2`; package engines allow `>=20.19 <21`.
 - npm: validated with `10.8.2`; package engines allow `>=10 <11`.
 - `npm run test*` and `npm run visual*` entrypoints run `verify:runtime` first.
+- Owner overlay builds keep canonical real paths as read/security authority but
+  give esbuild checkout-independent public/overlay logical identities. Release
+  acceptance compares exact output member paths and bytes across physical roots.
 - Common local gates:
   - `npm run quality`
   - `npm run verify:preflight`
