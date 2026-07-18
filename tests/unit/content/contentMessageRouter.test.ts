@@ -5,6 +5,16 @@ import { createContentMessageRouter } from '@content/runtime/contentMessageRoute
 import { deriveClipAnalyticsSource } from '@content/runtime/contentMessageHandlers';
 import { SHOW_LOCAL_VAULT_PERMISSION_PROMPT, SHOW_SUPPORT_PROMPT } from '@shared/types/clip';
 
+const queueNextClipAnalyticsSourceMock = vi.hoisted(() => vi.fn());
+
+vi.mock('../../../src/content/runtime/clipFlow', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../../src/content/runtime/clipFlow')>();
+  return {
+    ...actual,
+    queueNextClipAnalyticsSource: queueNextClipAnalyticsSourceMock
+  };
+});
+
 function createRouter(overrides: Partial<Parameters<typeof createContentMessageRouter>[0]> = {}) {
   return createContentMessageRouter({
     document,
@@ -43,6 +53,7 @@ describe('contentMessageRouter', () => {
   beforeEach(() => {
     document.body.innerHTML = '';
     vi.restoreAllMocks();
+    queueNextClipAnalyticsSourceMock.mockReset();
   });
 
   it('routes support prompt messages with normalized options', async () => {
@@ -130,6 +141,70 @@ describe('contentMessageRouter', () => {
     );
 
     expect(supportPrompt.show).not.toHaveBeenCalled();
+  });
+
+  it('routes clipSelection through the configured clip runner', async () => {
+    const setClipMode = vi.fn();
+    const runClip = vi.fn();
+    const router = createRouter({ setClipMode, runClip });
+
+    expect(
+      await router.handleMessage({ action: 'clipSelection', analyticsSource: 'shortcut' }, {})
+    ).toEqual({ success: true });
+
+    expect(setClipMode).toHaveBeenCalledWith('selection');
+    expect(runClip).toHaveBeenCalledTimes(1);
+    expect(queueNextClipAnalyticsSourceMock).toHaveBeenCalledWith('shortcut');
+  });
+
+  it('runs clipFull in the top frame', async () => {
+    const setClipMode = vi.fn();
+    const runClip = vi.fn();
+    const router = createRouter({ setClipMode, runClip });
+
+    expect(await router.handleMessage({ action: 'clipFull' }, {})).toEqual({
+      success: true
+    });
+
+    expect(setClipMode).toHaveBeenCalledWith('full');
+    expect(runClip).toHaveBeenCalledTimes(1);
+  });
+
+  it('ignores clipFull in a child frame', async () => {
+    const setClipMode = vi.fn();
+    const runClip = vi.fn();
+    const frame = document.createElement('iframe');
+    document.body.appendChild(frame);
+    const frameWindow = frame.contentWindow;
+    if (!frameWindow) {
+      throw new Error('iframe window unavailable');
+    }
+    const router = createRouter({ window: frameWindow, setClipMode, runClip });
+
+    expect(await router.handleMessage({ action: 'clipFull' }, {})).toEqual({
+      success: false,
+      error: 'Ignored in child frame',
+      ignored: true
+    });
+
+    expect(setClipMode).not.toHaveBeenCalled();
+    expect(runClip).not.toHaveBeenCalled();
+  });
+
+  it('starts a new video session when no session is active', async () => {
+    const start = vi.fn().mockResolvedValue(undefined);
+    const createVideoSession = vi.fn(() => ({ start }));
+    const router = createRouter({
+      createVideoSession,
+      isVideoSessionActive: vi.fn(() => false)
+    });
+
+    await expect(router.handleMessage({ action: 'startVideoMode' }, {})).resolves.toEqual({
+      success: true
+    });
+
+    expect(createVideoSession).toHaveBeenCalledTimes(1);
+    expect(start).toHaveBeenCalledTimes(1);
   });
 
   it('short-circuits startVideoMode when a session is already active', async () => {
@@ -286,6 +361,37 @@ describe('contentMessageRouter', () => {
     });
     expect(selection.rangeCount).toBe(1);
     expect(result).toEqual({ success: false, error: 'bridge failed' });
+  });
+
+  it('clips frame selection data with the configured document and current location', async () => {
+    const handleVideoSelectionClipFromData = vi.fn().mockResolvedValue(undefined);
+    const router = createRouter({
+      document,
+      selectionController: {
+        handleVideoSelectionClip: vi.fn(),
+        handleVideoSelectionClipFromData
+      }
+    });
+
+    await expect(
+      router.handleMessage(
+        {
+          action: 'videoClipSelectionFromFrame',
+          payload: {
+            selectedHtml: '<strong>frame selection</strong>',
+            selectedText: 'frame selection'
+          }
+        },
+        {}
+      )
+    ).resolves.toEqual({ success: true });
+
+    expect(handleVideoSelectionClipFromData).toHaveBeenCalledWith(
+      document,
+      location.href,
+      '<strong>frame selection</strong>',
+      'frame selection'
+    );
   });
 
   it('ignores unknown messages without route side effects', async () => {
