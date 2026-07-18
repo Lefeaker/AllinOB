@@ -2,7 +2,7 @@ import { existsSync, readFileSync, realpathSync, statSync } from 'node:fs';
 import { dirname, extname, isAbsolute, relative, resolve, sep } from 'node:path';
 
 const OVERLAY_NAMESPACE = 'portable-overlay-source';
-const PUBLIC_NAMESPACE = 'portable-public-source';
+const PUBLIC_NAMESPACE = 'p';
 const RESOLVE_NAMESPACE = 'file';
 
 const OVERLAY_LOADERS = new Map([
@@ -13,9 +13,14 @@ const OVERLAY_LOADERS = new Map([
   ['.ts', 'ts'],
   ['.tsx', 'tsx']
 ]);
+const PUBLIC_LOADERS = new Map([...OVERLAY_LOADERS, ['.cjs', 'js'], ['.css', 'css']]);
 
 function portableBuildError(code, message) {
   return new Error(`[${code}] ${message}`);
+}
+
+function sourceKey(namespace, path) {
+  return `${namespace}\0${path}`;
 }
 
 function canonicalDirectory(path, label) {
@@ -55,13 +60,30 @@ function isInsideRoot(path, root) {
 
 function rootRelativePath(root, path) {
   const rel = relative(root, path);
-  if (rel === '' || rel === '..' || rel.startsWith(`..${sep}`) || isAbsolute(rel)) {
+  const rendered = rel.split(sep).join('/');
+  const invalidSegment = rendered
+    .split('/')
+    .some(
+      (segment) =>
+        segment === '' ||
+        segment === '.' ||
+        segment === '..' ||
+        /^[A-Za-z]:/.test(segment)
+    );
+  if (
+    rel === '' ||
+    rel === '..' ||
+    rel.startsWith(`..${sep}`) ||
+    isAbsolute(rel) ||
+    rendered.includes('\\') ||
+    invalidSegment
+  ) {
     throw portableBuildError(
       'PORTABLE_BUILD_ROOT_ESCAPE',
       `source must stay inside its declared root: ${path}`
     );
   }
-  return rel.split(sep).join('/');
+  return rendered;
 }
 
 function isRelativeSpecifier(path) {
@@ -82,6 +104,18 @@ function overlayLoader(path) {
     throw portableBuildError(
       'PORTABLE_BUILD_UNSUPPORTED_LOADER',
       `unsupported overlay source extension ${extension || '(none)'}: ${path}`
+    );
+  }
+  return loader;
+}
+
+function publicLoader(path, configuredLoaders) {
+  const extension = extname(path).toLowerCase();
+  const loader = configuredLoaders?.[extension] ?? PUBLIC_LOADERS.get(extension);
+  if (!loader) {
+    throw portableBuildError(
+      'PORTABLE_BUILD_UNSUPPORTED_LOADER',
+      `unsupported public source extension ${extension || '(none)'}: ${path}`
     );
   }
   return loader;
@@ -151,7 +185,7 @@ export function createPortableBuildIdentity({ publicRoot, overlayRoots = [] }) {
       return {
         kind: 'public',
         namespace: PUBLIC_NAMESPACE,
-        path: `public/${rootRelativePath(canonicalPublicRoot, canonical)}`,
+        path: rootRelativePath(canonicalPublicRoot, canonical),
         root: canonicalPublicRoot,
         rootIndex: null
       };
@@ -172,22 +206,33 @@ export function createPortableBuildIdentity({ publicRoot, overlayRoots = [] }) {
     return { identityToken, kind, namespace, path: logicalPath, rootIndex };
   }
 
-  function bindOverlaySource(canonical, classification = classifyCanonicalSource(canonical)) {
-    if (classification.kind !== 'overlay') {
-      return null;
+  function sourceCapability(classification) {
+    return {
+      identityToken,
+      kind: classification.kind,
+      rootIndex: classification.rootIndex
+    };
+  }
+
+  function bindSource(canonical, classification = classifyCanonicalSource(canonical)) {
+    if (classification.kind === 'overlay') {
+      overlayLoader(canonical);
     }
-    overlayLoader(canonical);
-    const existing = logicalToReal.get(classification.path);
+    const key = sourceKey(classification.namespace, classification.path);
+    const existing = logicalToReal.get(key);
     if (existing && existing !== canonical) {
       throw portableBuildError(
         'PORTABLE_BUILD_IDENTITY_COLLISION',
-        `logical source ${classification.path} maps to both ${existing} and ${canonical}`
+        `logical source ${classification.namespace}:${classification.path} maps to both ${existing} and ${canonical}`
       );
     }
-    logicalToReal.set(classification.path, canonical);
+    logicalToReal.set(key, canonical);
     return {
-      namespace: OVERLAY_NAMESPACE,
-      path: classification.path
+      namespace: classification.namespace,
+      path: classification.path,
+      pluginData: {
+        portableBuildIdentity: sourceCapability(classification)
+      }
     };
   }
 
@@ -213,30 +258,17 @@ export function createPortableBuildIdentity({ publicRoot, overlayRoots = [] }) {
           ? args.path
           : resolve(args.resolveDir || workingDirectory, args.path);
         if (!existsSync(candidate)) {
-          if (isAbsolute(args.path)) {
-            throw portableBuildError(
-              'PORTABLE_BUILD_SOURCE_MISSING',
-              `absolute entry point does not exist: ${candidate}`
-            );
-          }
-          return undefined;
+          throw portableBuildError(
+            'PORTABLE_BUILD_SOURCE_MISSING',
+            `entry point does not exist exactly as declared: ${candidate}`
+          );
         }
         const canonical = canonicalSource(candidate);
-        const overlayMatch = canonicalOverlayRoots.some((root) => isInsideRoot(canonical, root));
-        if (overlayMatch) {
-          return bindOverlaySource(canonical);
-        }
-        if (isInsideRoot(canonical, canonicalPublicRoot)) {
-          return undefined;
-        }
-        throw portableBuildError(
-          'PORTABLE_BUILD_ROOT_ESCAPE',
-          `entry point is outside the declared public and overlay roots: ${canonical}`
-        );
+        return bindSource(canonical);
       });
 
-      build.onResolve({ filter: /.*/, namespace: OVERLAY_NAMESPACE }, async (args) => {
-        const importer = logicalToReal.get(args.importer);
+      async function resolveLogicalSource(args) {
+        const importer = logicalToReal.get(sourceKey(args.namespace, args.importer));
         if (!importer) {
           throw portableBuildError(
             'PORTABLE_BUILD_IDENTITY_COLLISION',
@@ -259,83 +291,109 @@ export function createPortableBuildIdentity({ publicRoot, overlayRoots = [] }) {
           );
         }
         if (resolved.external) {
-          if (isRelativeSpecifier(args.path)) {
-            throw portableBuildError(
-              'PORTABLE_BUILD_ROOT_ESCAPE',
-              `relative overlay import cannot be external: ${args.path}`
-            );
-          }
-          return resolved;
+          throw portableBuildError(
+            'PORTABLE_BUILD_ROOT_ESCAPE',
+            `logical source import cannot be external: ${args.path}`
+          );
         }
         if (resolved.namespace !== RESOLVE_NAMESPACE) {
-          if (isRelativeSpecifier(args.path)) {
-            const targetIdentity = resolved.pluginData?.portableBuildIdentity;
-            if (
-              targetIdentity?.identityToken !== identityToken ||
-              targetIdentity?.kind !== 'overlay' ||
-              targetIdentity.rootIndex !== importerClassification.rootIndex
-            ) {
-              throw portableBuildError(
-                'PORTABLE_BUILD_ROOT_ESCAPE',
-                `relative overlay import resolved through an untrusted namespace or root: ${args.path}`
-              );
-            }
+          const targetIdentity = resolved.pluginData?.portableBuildIdentity;
+          if (targetIdentity?.identityToken !== identityToken) {
+            throw portableBuildError(
+              'PORTABLE_BUILD_ROOT_ESCAPE',
+              `source import resolved through an untrusted namespace: ${args.path}`
+            );
+          }
+          if (
+            importerClassification.kind === 'overlay' &&
+            (targetIdentity.kind !== 'overlay' ||
+              targetIdentity.rootIndex !== importerClassification.rootIndex)
+          ) {
+            throw portableBuildError(
+              'PORTABLE_BUILD_ROOT_ESCAPE',
+              `overlay import crosses declared roots: ${args.path}`
+            );
+          }
+          if (importerClassification.kind === 'public' && targetIdentity.kind !== 'public') {
+            throw portableBuildError(
+              'PORTABLE_BUILD_ROOT_ESCAPE',
+              `public import resolved outside its declared root: ${args.path}`
+            );
           }
           return resolved;
         }
 
         const target = identifySource(resolved.path);
         if (target.kind === 'overlay') {
-          if (target.rootIndex !== importerClassification.rootIndex) {
+          if (
+            importerClassification.kind !== 'overlay' ||
+            target.rootIndex !== importerClassification.rootIndex
+          ) {
             throw portableBuildError(
               'PORTABLE_BUILD_ROOT_ESCAPE',
               `overlay import crosses declared roots: ${args.path}`
             );
           }
           return {
-            ...bindOverlaySource(target.canonical, target),
+            ...bindSource(target.canonical, target),
             external: resolved.external,
             sideEffects: resolved.sideEffects,
             suffix: resolved.suffix,
             warnings: resolved.warnings
           };
         }
-        if (isRelativeSpecifier(args.path)) {
+        if (importerClassification.kind === 'overlay' && isRelativeSpecifier(args.path)) {
           throw portableBuildError(
             'PORTABLE_BUILD_ROOT_ESCAPE',
             `relative overlay import escapes its declared root: ${args.path}`
           );
         }
-        return resolved;
-      });
+        return {
+          ...bindSource(target.canonical, target),
+          external: resolved.external,
+          sideEffects: resolved.sideEffects,
+          suffix: resolved.suffix,
+          warnings: resolved.warnings
+        };
+      }
 
-      build.onLoad({ filter: /.*/, namespace: OVERLAY_NAMESPACE }, (args) => {
-        const sourcePath = logicalToReal.get(args.path);
+      build.onResolve({ filter: /.*/, namespace: OVERLAY_NAMESPACE }, resolveLogicalSource);
+      build.onResolve({ filter: /.*/, namespace: PUBLIC_NAMESPACE }, resolveLogicalSource);
+
+      function loadLogicalSource(args) {
+        const sourcePath = logicalToReal.get(sourceKey(args.namespace, args.path));
         if (!sourcePath || !existsSync(sourcePath)) {
           throw portableBuildError(
             'PORTABLE_BUILD_SOURCE_MISSING',
-            `logical overlay source is missing: ${args.path}`
+            `logical source is missing: ${args.namespace}:${args.path}`
           );
         }
         const currentCanonical = canonicalSource(sourcePath);
         const currentClassification = classifyCanonicalSource(currentCanonical);
         if (
           currentCanonical !== sourcePath ||
-          currentClassification.kind !== 'overlay' ||
+          currentClassification.namespace !== args.namespace ||
           currentClassification.path !== args.path
         ) {
           throw portableBuildError(
             'PORTABLE_BUILD_IDENTITY_COLLISION',
-            `overlay source binding changed after resolution: ${args.path}`
+            `logical source binding changed after resolution: ${args.path}`
           );
         }
+        const loader =
+          currentClassification.kind === 'overlay'
+            ? overlayLoader(currentCanonical)
+            : publicLoader(currentCanonical, build.initialOptions.loader);
         return {
           contents: readFileSync(currentCanonical),
-          loader: overlayLoader(currentCanonical),
+          loader,
           resolveDir: dirname(currentCanonical),
           watchFiles: [currentCanonical]
         };
-      });
+      }
+
+      build.onLoad({ filter: /.*/, namespace: OVERLAY_NAMESPACE }, loadLogicalSource);
+      build.onLoad({ filter: /.*/, namespace: PUBLIC_NAMESPACE }, loadLogicalSource);
     }
   };
 

@@ -2,6 +2,10 @@ import { existsSync, readFileSync, realpathSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { createPortableBuildIdentity } from './portableBuildIdentityPlugin.mjs';
 
+function sourceKey(namespace, path) {
+  return `${namespace}\0${path}`;
+}
+
 /**
  * esbuild plugin to import CSS files as text strings
  * Allows `import styles from './styles.css?inline';`
@@ -31,14 +35,26 @@ export function cssTextPlugin(options = {}) {
         }
         const realPath = realpathSync(candidate);
         const identity = sourceIdentity(realPath);
+        const importerIdentity = args.pluginData?.portableBuildIdentity;
+        if (
+          importerIdentity?.kind === 'overlay' &&
+          (identity.identityToken !== importerIdentity.identityToken ||
+            identity.kind !== 'overlay' ||
+            identity.rootIndex !== importerIdentity.rootIndex)
+        ) {
+          throw new Error(
+            `[PORTABLE_BUILD_ROOT_ESCAPE] inline CSS crosses declared overlay roots: ${args.path}`
+          );
+        }
         const path = `${identity.namespace}/${identity.path}`;
-        const existing = logicalToReal.get(path);
+        const key = sourceKey('css-text', path);
+        const existing = logicalToReal.get(key);
         if (existing && existing !== realPath) {
           throw new Error(
             `[PORTABLE_BUILD_IDENTITY_COLLISION] inline CSS ${path} maps to both ${existing} and ${realPath}`
           );
         }
-        logicalToReal.set(path, realPath);
+        logicalToReal.set(key, realPath);
         return {
           path,
           namespace: 'css-text',
@@ -50,7 +66,7 @@ export function cssTextPlugin(options = {}) {
       });
 
       build.onLoad({ filter: /.*/, namespace: 'css-text' }, (args) => {
-        const realPath = logicalToReal.get(args.path);
+        const realPath = logicalToReal.get(sourceKey(args.namespace, args.path));
         if (!realPath || !existsSync(realPath)) {
           throw new Error(`[PORTABLE_BUILD_SOURCE_MISSING] inline CSS is missing: ${args.path}`);
         }
