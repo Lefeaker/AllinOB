@@ -11,6 +11,7 @@ import { applyRestHostPermissions } from './utils/manifestHosts.mjs';
 import { createBrowserManifest } from './utils/manifestSources.mjs';
 import { readPackageVersion } from './utils/packageMetadata.mjs';
 import { cssTextPlugin } from './plugins/cssTextPlugin.mjs';
+import { createPortableBuildIdentity } from './plugins/portableBuildIdentityPlugin.mjs';
 import { runQualityChecks } from './quality-check.mjs';
 
 const args = process.argv.slice(2);
@@ -27,6 +28,20 @@ const entrypointPlan = createBuildEntrypointPlan({
   overlay: buildOverlay
 });
 const packageVersion = readPackageVersion();
+
+function createBuildPlugins() {
+  const identity = createPortableBuildIdentity({
+    publicRoot: process.cwd(),
+    overlayRoots: buildOverlay?.overlayRoots ?? []
+  });
+  return [
+    identity.plugin,
+    cssTextPlugin({
+      publicRoot: process.cwd(),
+      sourceIdentity: (path) => identity.sourceIdentity(path)
+    })
+  ];
+}
 
 function getArgValue(name) {
   const inline = args.find((arg) => arg.startsWith(`${name}=`));
@@ -120,14 +135,14 @@ const sharedBuildOptions = {
   charset: 'utf8',
   loader: {
     '.css': 'text'
-  },
-  plugins: [cssTextPlugin()]
+  }
 };
 
 const backgroundBuildOptions = {
   ...sharedBuildOptions,
   entryPoints: entrypointPlan.backgroundEntryPoints,
-  format: 'iife'
+  format: 'iife',
+  plugins: createBuildPlugins()
 };
 
 const appBuildOptions = {
@@ -135,7 +150,8 @@ const appBuildOptions = {
   entryPoints: entrypointPlan.appEntryPoints,
   format: 'esm',
   splitting: true,
-  chunkNames: 'chunks/[name]-[hash]'
+  chunkNames: 'chunks/[name]-[hash]',
+  plugins: createBuildPlugins()
 };
 
 if (watch) {

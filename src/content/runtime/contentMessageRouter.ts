@@ -16,21 +16,23 @@ import {
 } from './contentMessageHandlers';
 
 export interface CreateContentMessageRouterOptions {
-  document: Document;
-  window: Window;
-  messaging: Pick<MessagingService, 'addListener' | 'send'>;
-  supportPrompt: SupportPromptLike;
-  localVaultPermissionPrompt: LocalVaultPermissionPromptLike;
-  setClipMode: (mode: ClipMode) => void;
-  runClip: () => void;
-  selectionController: VideoSelectionController;
-  createVideoSession: () => VideoSessionLike;
-  isVideoSessionActive: () => boolean;
-  getVideoSession: () => VideoSessionLike | null;
-  resolveActiveSelection: () => ActiveSelectionInfo | null;
-  restoreSelectionFromSnapshot: (snapshot: SelectionSnapshot | null) => ActiveSelectionInfo | null;
-  getLastSelectionSnapshot: () => SelectionSnapshot | null;
-  clearLastSelectionSnapshot: () => void;
+  readonly document: Document;
+  readonly window: Window;
+  readonly messaging: Pick<MessagingService, 'addListener' | 'send'>;
+  readonly supportPrompt: SupportPromptLike;
+  readonly localVaultPermissionPrompt: LocalVaultPermissionPromptLike;
+  readonly setClipMode: (mode: ClipMode) => void;
+  readonly runClip: () => void;
+  readonly selectionController: VideoSelectionController;
+  readonly createVideoSession: () => VideoSessionLike;
+  readonly isVideoSessionActive: () => boolean;
+  readonly getVideoSession: () => VideoSessionLike | null;
+  readonly resolveActiveSelection: () => ActiveSelectionInfo | null;
+  readonly restoreSelectionFromSnapshot: (
+    snapshot: SelectionSnapshot | null
+  ) => ActiveSelectionInfo | null;
+  readonly getLastSelectionSnapshot: () => SelectionSnapshot | null;
+  readonly clearLastSelectionSnapshot: () => void;
 }
 
 export interface ContentMessageRouter {
@@ -41,23 +43,7 @@ export interface ContentMessageRouter {
 export function createContentMessageRouter(
   options: CreateContentMessageRouterOptions
 ): ContentMessageRouter {
-  const {
-    document,
-    window,
-    messaging,
-    supportPrompt,
-    localVaultPermissionPrompt,
-    setClipMode,
-    runClip,
-    selectionController,
-    createVideoSession,
-    isVideoSessionActive,
-    getVideoSession,
-    resolveActiveSelection,
-    restoreSelectionFromSnapshot,
-    getLastSelectionSnapshot,
-    clearLastSelectionSnapshot
-  } = options;
+  const { messaging, supportPrompt, localVaultPermissionPrompt } = options;
 
   const handleMessage: MessageListener = (rawMessage) => {
     if (!rawMessage || typeof rawMessage !== 'object') {
@@ -73,24 +59,7 @@ export function createContentMessageRouter(
       return requestLocalVaultPermission(localVaultPermissionPrompt, rawMessage);
     }
 
-    return handleContentAction(
-      {
-        document,
-        window,
-        messaging,
-        setClipMode,
-        runClip,
-        selectionController,
-        createVideoSession,
-        isVideoSessionActive,
-        getVideoSession,
-        resolveActiveSelection,
-        restoreSelectionFromSnapshot,
-        getLastSelectionSnapshot,
-        clearLastSelectionSnapshot
-      },
-      rawMessage as Record<string, unknown>
-    );
+    return handleContentAction(options, rawMessage as Record<string, unknown>);
   };
 
   return {
