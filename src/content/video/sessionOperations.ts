@@ -25,7 +25,7 @@ import {
   rollbackVideoSessionFragmentAdd,
   saveVideoSessionCaptures
 } from './videoCaptureMutationTransaction';
-import { runVideoSessionCaptureMutation } from './videoSessionCaptureMutations';
+import { hasScreenshotOwner, runVideoSessionCaptureMutation } from './videoSessionCaptureMutations';
 
 export function beginVideoSessionAnalytics(
   context: VideoSessionOperationContext,
@@ -104,7 +104,7 @@ export async function handleVideoSessionAddCapture(
     },
     save: () => saveVideoSessionCaptures(context),
     commit: () => {
-      if (!capture.screenshot) {
+      if (!capture.screenshot && !hasScreenshotOwner(context, capture)) {
         requestRequestedScreenshotPreparation(context, capture.id);
       }
       emitVideoUsageEvent(context.dependencies, 'video_timestamp_added', {

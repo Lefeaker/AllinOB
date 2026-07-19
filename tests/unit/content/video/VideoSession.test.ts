@@ -706,8 +706,12 @@ describe('VideoSession', () => {
     await flushMutationWork();
 
     expect(sessionApi.state.captures[0]).toMatchObject({ comment: 'edited note' });
-    expect(sessionApi.state.captures[1]).not.toHaveProperty('screenshotRequested');
-    expect(saveEvents).toEqual(['save-1:start']);
+    expect(sessionApi.state.captures[1]).toMatchObject({ screenshotRequested: true });
+    expect(view.setCaptures.mock.calls.at(-1)?.[0]?.[1]).toMatchObject({
+      id: 'ts-toggle',
+      screenshotState: 'pending'
+    });
+    expect([...saveEvents]).toEqual(['save-1:start']);
 
     firstSave.resolve('failure');
     await editPromise;
@@ -718,7 +722,7 @@ describe('VideoSession', () => {
       'ts-edit': 'draft note'
     });
     expect(sessionApi.state.captures[1]).toMatchObject({ screenshotRequested: true });
-    expect(saveEvents).toEqual(['save-1:start', 'save-1:end', 'save-2:start']);
+    expect([...saveEvents]).toEqual(['save-1:start', 'save-1:end', 'save-2:start']);
 
     secondSave.resolve('ready');
     await togglePromise;

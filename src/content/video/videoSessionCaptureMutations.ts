@@ -1,26 +1,22 @@
 import { bucketCount } from '../../shared/analytics';
-import type { VideoTimestampCapture } from './types';
 import type { VideoCaptureMutationTransaction } from './videoCaptureMutationTypes';
 import type { VideoSessionOperationContext } from './videoSessionOperationContext';
 import {
   emitVideoUsageEvent,
-  requestRequestedScreenshotPreparation,
   restoreRemovedFragmentHighlight,
-  restoreTimestampScreenshotState,
-  saveVideoSessionCaptures,
-  snapshotTimestampScreenshotState
+  saveVideoSessionCaptures
 } from './videoCaptureMutationTransaction';
-import {
-  clearRequestedTimestampScreenshot,
-  hasRequestedTimestampScreenshot,
-  setRequestedTimestampScreenshot
-} from './screenshotIntent';
 import {
   collectVideoDraftScreenshotRefs,
   filterUnreferencedVideoDraftScreenshotRefs,
   removeVideoDraftCachedScreenshotRefs
 } from './videoSessionDraftScreenshotCache';
 import type { VideoScreenshotCacheRef } from './videoScreenshotCacheTypes';
+
+export {
+  hasScreenshotOwner,
+  toggleVideoSessionCaptureScreenshot
+} from './videoSessionScreenshotToggle';
 
 export function runVideoSessionCaptureMutation<Result>(
   context: VideoSessionOperationContext,
@@ -179,64 +175,4 @@ export function removeVideoSessionCapture(context: VideoSessionOperationContext,
     }
   });
   void saveTask;
-}
-
-export async function toggleVideoSessionCaptureScreenshot(
-  context: VideoSessionOperationContext,
-  id: string
-): Promise<void> {
-  if (
-    !context.state.captures.some((capture) => capture.kind === 'timestamp' && capture.id === id)
-  ) {
-    return;
-  }
-  let applied = false;
-  await runVideoSessionCaptureMutation(context, {
-    apply: () => {
-      const target = context.state.captures.find(
-        (capture): capture is VideoTimestampCapture =>
-          capture.kind === 'timestamp' && capture.id === id
-      );
-      if (!target) {
-        return null;
-      }
-      const previousScreenshotState = snapshotTimestampScreenshotState(target);
-      const shouldPrepareScreenshot = !hasRequestedTimestampScreenshot(target);
-      if (shouldPrepareScreenshot) {
-        setRequestedTimestampScreenshot(target, null);
-      } else {
-        clearRequestedTimestampScreenshot(target);
-      }
-      applied = true;
-      return { target, previousScreenshotState, shouldPrepareScreenshot };
-    },
-    afterApply: (result) => {
-      if (!result) {
-        return;
-      }
-      context.syncPanel();
-      context.applyHint('saving');
-    },
-    save: () => (applied ? saveVideoSessionCaptures(context) : Promise.resolve(null)),
-    commit: (result) => {
-      if (!result) {
-        return;
-      }
-      context.syncPanel();
-      if (result.shouldPrepareScreenshot) {
-        requestRequestedScreenshotPreparation(context, result.target.id);
-      }
-    },
-    rollback: (result) => {
-      if (!result) {
-        return;
-      }
-      restoreTimestampScreenshotState(result.target, result.previousScreenshotState);
-      context.syncPanel();
-      context.applyHint('failure');
-    },
-    onSaveError: (error) => {
-      console.warn('[VideoSession] Failed to save screenshot toggle:', error);
-    }
-  });
 }

@@ -939,14 +939,18 @@ describe('VideoSession screenshots', () => {
     await flushMutationWork();
 
     expect(sessionApi.state.captures[0]).toMatchObject({ comment: 'edited note' });
-    expect(saveEvents).toEqual(['save-1:start']);
+    expect([...saveEvents]).toEqual(['save-1:start']);
     expect(sessionApi.state.saving).toBe(true);
 
     const togglePromise = sessionApi.toggleCaptureScreenshot('ts-toggle');
     await flushMutationWork();
 
-    expect(sessionApi.state.captures[1]).not.toHaveProperty('screenshotRequested');
-    expect(saveEvents).toEqual(['save-1:start']);
+    expect(sessionApi.state.captures[1]).toMatchObject({ screenshotRequested: true });
+    expect(view.setCaptures.mock.calls.at(-1)?.[0]?.[1]).toMatchObject({
+      id: 'ts-toggle',
+      screenshotState: 'pending'
+    });
+    expect([...saveEvents]).toEqual(['save-1:start']);
     expect(sessionApi.state.saving).toBe(true);
 
     firstSave.resolve('ready');
@@ -954,18 +958,156 @@ describe('VideoSession screenshots', () => {
     await flushMutationWork();
 
     expect(sessionApi.state.captures[1]).toMatchObject({ screenshotRequested: true });
-    expect(saveEvents).toEqual(['save-1:start', 'save-1:end', 'save-2:start']);
+    expect([...saveEvents]).toEqual(['save-1:start', 'save-1:end', 'save-2:start']);
     expect(sessionApi.state.saving).toBe(true);
 
     secondSave.resolve('ready');
     await togglePromise;
     await flushMutationWork();
 
-    expect(saveEvents).toEqual(['save-1:start', 'save-1:end', 'save-2:start', 'save-2:end']);
+    expect([...saveEvents]).toEqual(['save-1:start', 'save-1:end', 'save-2:start', 'save-2:end']);
     expect(sessionApi.state.saving).toBe(false);
 
     sessionApi.cleanup();
     vi.useRealTimers();
+  });
+
+  it('acknowledges an enabled first screenshot click while timestamp-add persistence is still in flight', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-03-14T10:00:00Z'));
+    const firstSave = createDeferred<'ready'>();
+    const secondSave = createDeferred<'ready'>();
+    const saveEvents: string[] = [];
+    const deps = createDependencies();
+    const screenshotCacheLoadMock = vi.fn(() => Promise.resolve(null));
+    const screenshotCacheSaveMock: VideoScreenshotCacheSaveMock = vi.fn(
+      (): Promise<VideoScreenshotCacheSaveResult> =>
+        Promise.resolve({
+          status: 'skipped',
+          reason: 'serialize-failed',
+          error: 'not configured'
+        })
+    );
+    const screenshotCache = createScreenshotCacheRepositoryMock({
+      load: screenshotCacheLoadMock,
+      save: screenshotCacheSaveMock
+    });
+    deps.screenshotCacheRepository = screenshotCache;
+    const view = createView();
+    let mountedCallbacks: VideoPanelCallbacks | null = null;
+    deps.viewFactory.createView = vi.fn((callbacks: VideoPanelCallbacks) => {
+      mountedCallbacks = callbacks;
+      return view;
+    });
+    const preparationSpy = vi.spyOn(
+      VideoScreenshotPreparationCoordinator.prototype,
+      'prepareRequestedScreenshot'
+    );
+    const session = new VideoSession(document, deps);
+    const sessionApi = toSessionTestApi(session);
+    let addPromise: Promise<void> | null = null;
+    let togglePromise: Promise<void> | null = null;
+
+    try {
+      await session.start();
+      const flushNowSpy = vi
+        .spyOn(toDraftControllerTestApi(session), 'flushNow')
+        .mockImplementation(async () => {
+          const saveIndex = saveEvents.filter((event) => event.endsWith(':start')).length;
+          const gate = saveIndex === 0 ? firstSave : secondSave;
+          saveEvents.push(`save-${saveIndex + 1}:start`);
+          const result = await gate.promise;
+          saveEvents.push(`save-${saveIndex + 1}:end`);
+          return result;
+        });
+      const toggleEntrySpy = vi.spyOn(sessionApi, 'toggleCaptureScreenshot');
+      const callbacks = requireMountedPanelCallbacks(mountedCallbacks);
+
+      addPromise = requirePromise(callbacks.onAddCapture('button'));
+      await flushMutationWork();
+
+      const capture = sessionApi.state.captures[0];
+      if (!capture) {
+        throw new Error('Expected timestamp-add to render a capture before persistence completed');
+      }
+      const renderedBeforeClick = view.setCaptures.mock.calls.at(-1)?.[0]?.[0];
+      expect({
+        captureId: renderedBeforeClick?.id,
+        kind: renderedBeforeClick?.kind,
+        screenshotState: renderedBeforeClick?.screenshotState,
+        toggleAction: typeof callbacks.onToggleScreenshot,
+        saveEvents: [...saveEvents]
+      }).toEqual({
+        captureId: capture.id,
+        kind: 'timestamp',
+        screenshotState: 'off',
+        toggleAction: 'function',
+        saveEvents: ['save-1:start']
+      });
+
+      void callbacks.onToggleScreenshot(capture.id);
+      const toggleResult = toggleEntrySpy.mock.results[0];
+      if (!toggleResult || toggleResult.type !== 'return') {
+        throw new Error('Expected the mounted toggle callback to enter the session action');
+      }
+      togglePromise = requirePromise(toggleResult.value);
+      await flushMutationWork();
+
+      const renderedAfterClick = view.setCaptures.mock.calls.at(-1)?.[0]?.[0];
+      expect({
+        callbackEntries: toggleEntrySpy.mock.calls.length,
+        screenshotRequested: capture.screenshotRequested === true,
+        screenshotState: renderedAfterClick?.screenshotState,
+        saveEvents: [...saveEvents],
+        preparationCalls: preparationSpy.mock.calls.length,
+        cacheReads: screenshotCacheLoadMock.mock.calls.length,
+        cacheWrites: screenshotCacheSaveMock.mock.calls.length
+      }).toEqual({
+        callbackEntries: 1,
+        screenshotRequested: true,
+        screenshotState: 'pending',
+        saveEvents: ['save-1:start'],
+        preparationCalls: 0,
+        cacheReads: 0,
+        cacheWrites: 0
+      });
+
+      firstSave.resolve('ready');
+      await addPromise;
+      await flushMutationWork();
+
+      expect(capture).toMatchObject({ screenshotRequested: true });
+      expect(view.setCaptures.mock.calls.at(-1)?.[0]?.[0]).toMatchObject({
+        id: capture.id,
+        screenshotState: 'pending'
+      });
+      expect([...saveEvents]).toEqual(['save-1:start', 'save-1:end', 'save-2:start']);
+      expect(preparationSpy).not.toHaveBeenCalled();
+      expect(screenshotCacheLoadMock).not.toHaveBeenCalled();
+      expect(screenshotCacheSaveMock).not.toHaveBeenCalled();
+
+      secondSave.resolve('ready');
+      await togglePromise;
+      await flushMutationWork();
+
+      expect(toggleEntrySpy).toHaveBeenCalledTimes(1);
+      expect(toggleEntrySpy).toHaveBeenCalledWith(capture.id);
+      expect(flushNowSpy).toHaveBeenCalledTimes(2);
+      expect([...saveEvents]).toEqual(['save-1:start', 'save-1:end', 'save-2:start', 'save-2:end']);
+      expect(preparationSpy).toHaveBeenCalledTimes(1);
+      expect(preparationSpy).toHaveBeenCalledWith(capture.id);
+      expect(sessionApi.state.captures).toHaveLength(1);
+      expect(sessionApi.state.captures[0]).toMatchObject({ screenshotRequested: true });
+    } finally {
+      firstSave.resolve('ready');
+      secondSave.resolve('ready');
+      await Promise.allSettled(
+        [addPromise, togglePromise].filter((promise): promise is Promise<void> => promise !== null)
+      );
+      sessionApi.cleanup();
+      preparationSpy.mockRestore();
+      vi.useRealTimers();
+    }
   });
 
   it('skips queued edit and screenshot toggle when an earlier queued delete removes the target before apply', async () => {
@@ -1012,7 +1154,7 @@ describe('VideoSession screenshots', () => {
     await flushMutationWork();
 
     expect(sessionApi.state.captures.map((capture) => capture.id)).toEqual(['timestamp-1']);
-    expect(saveEvents).toEqual(['save-1:start']);
+    expect([...saveEvents]).toEqual(['save-1:start']);
 
     firstSave.resolve('ready');
     await editPromise;
@@ -1020,7 +1162,7 @@ describe('VideoSession screenshots', () => {
     await flushMutationWork();
 
     expect(sessionApi.state.captures).toEqual([expect.objectContaining({ id: 'timestamp-1' })]);
-    expect(saveEvents).toEqual(['save-1:start', 'save-1:end']);
+    expect([...saveEvents]).toEqual(['save-1:start', 'save-1:end']);
     expect(sessionApi.state.saving).toBe(false);
 
     sessionApi.cleanup();
@@ -1200,6 +1342,10 @@ describe('VideoSession screenshots', () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-03-14T10:00:00Z'));
     const deps = createDependencies();
+    const preparationSpy = vi.spyOn(
+      VideoScreenshotPreparationCoordinator.prototype,
+      'prepareRequestedScreenshot'
+    );
     const session = new VideoSession(document, deps);
     const sessionApi = toSessionTestApi(session);
     const canvas = document.createElement('canvas');
@@ -1258,6 +1404,11 @@ describe('VideoSession screenshots', () => {
     expect(pauseSpy).toHaveBeenCalledTimes(1);
     expect(playSpy).toHaveBeenCalledTimes(1);
     expect(deps.storage.local.setMany).toHaveBeenCalledTimes(1);
+    expect(preparationSpy).toHaveBeenCalledTimes(1);
+    expect(preparationSpy).toHaveBeenCalledWith(sessionApi.state.captures[0]?.id);
+    expect(setManyMock.mock.invocationCallOrder[0]).toBeLessThan(
+      preparationSpy.mock.invocationCallOrder[0] ?? Number.POSITIVE_INFINITY
+    );
     expect(drawImage).toHaveBeenCalledWith(video, 0, 0, 640, 360);
     expect(toBlob).toHaveBeenCalledTimes(1);
     expect(toDataURL).not.toHaveBeenCalled();
@@ -1284,6 +1435,7 @@ describe('VideoSession screenshots', () => {
     await Promise.resolve();
     createElementSpy.mockRestore();
     sessionApi.cleanup();
+    preparationSpy.mockRestore();
     vi.useRealTimers();
   });
 
@@ -1291,6 +1443,10 @@ describe('VideoSession screenshots', () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-03-14T10:00:00Z'));
     const deps = createDependencies();
+    const preparationSpy = vi.spyOn(
+      VideoScreenshotPreparationCoordinator.prototype,
+      'prepareRequestedScreenshot'
+    );
     const session = new VideoSession(document, deps);
     const sessionApi = toSessionTestApi(session);
     const canvas = document.createElement('canvas');
@@ -1311,6 +1467,8 @@ describe('VideoSession screenshots', () => {
     });
 
     await session.start();
+    const setManyMock = vi.mocked(deps.storage.local.setMany);
+    setManyMock.mockClear();
 
     const video = requireVideoElement();
     let currentTime = 8;
@@ -1363,6 +1521,12 @@ describe('VideoSession screenshots', () => {
       screenshotRequested: true
     });
     expect(sessionApi.state.captures[0]?.screenshot).toBeUndefined();
+    expect(setManyMock).toHaveBeenCalledTimes(1);
+    expect(preparationSpy).toHaveBeenCalledTimes(1);
+    expect(preparationSpy).toHaveBeenCalledWith('timestamp-1');
+    expect(setManyMock.mock.invocationCallOrder[0]).toBeLessThan(
+      preparationSpy.mock.invocationCallOrder[0] ?? Number.POSITIVE_INFINITY
+    );
     const view = (deps.viewFactory.createView as ReturnType<typeof vi.fn>).mock.results[0]
       ?.value as TestView | undefined;
     const panelCaptures = view?.setCaptures.mock.calls.at(-1)?.[0] as
@@ -1378,6 +1542,8 @@ describe('VideoSession screenshots', () => {
 
     expect(sessionApi.state.captures[0]?.screenshot).toBeUndefined();
     expect(sessionApi.state.captures[0]).not.toHaveProperty('screenshotRequested');
+    expect(setManyMock).toHaveBeenCalledTimes(2);
+    expect(preparationSpy).toHaveBeenCalledTimes(1);
     const toggledOffCaptures = view?.setCaptures.mock.calls.at(-1)?.[0] as
       | Array<{ hasScreenshot?: boolean; screenshotState?: string }>
       | undefined;
@@ -1388,6 +1554,7 @@ describe('VideoSession screenshots', () => {
 
     createElementSpy.mockRestore();
     sessionApi.cleanup();
+    preparationSpy.mockRestore();
     vi.useRealTimers();
   });
 
